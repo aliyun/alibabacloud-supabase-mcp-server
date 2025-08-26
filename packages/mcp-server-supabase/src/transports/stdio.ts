@@ -52,7 +52,7 @@ async function main() {
 
   const aliyunAccessToken = process.env.ALIYUN_ACCESS_TOKEN;
 
-  const features = cliFeatures ? parseList(cliFeatures) : undefined;
+  const features = cliFeatures ? parseList(cliFeatures) : ['aliyun'];
 
   const hasAliyunFeature = features?.includes('aliyun');
 
