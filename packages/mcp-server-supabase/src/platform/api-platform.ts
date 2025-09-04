@@ -79,13 +79,32 @@ export function createSupabaseApiPlatform(
   );
 
   const createAliyunGpdbClient = (regionId: string = 'cn-hangzhou') => {
-    if (!aliyunAccessToken) {
-      throw new Error('ALIYUN_ACCESS_TOKEN environment variable is not set or provided.');
+    // Check if aliyunAccessToken is provided (from ALIYUN_ACCESS_TOKEN env var)
+    let accessKeyId: string | undefined;
+    let accessKeySecret: string | undefined;
+    
+    if (aliyunAccessToken) {
+      // Use the existing format: "AccessKeyId|AccessKeySecret"
+      const parts = aliyunAccessToken.split('|');
+      if (parts.length !== 2 || !parts[0] || !parts[1]) {
+        throw new Error('Invalid Aliyun Access Token format in ALIYUN_ACCESS_TOKEN. Expected "AccessKeyId|AccessKeySecret".');
+      }
+      [accessKeyId, accessKeySecret] = parts;
+    } else {
+      // Check for the alternative environment variables
+      accessKeyId = process.env.ALIBABA_CLOUD_ACCESS_KEY_ID;
+      accessKeySecret = process.env.ALIBABA_CLOUD_ACCESS_KEY_SECRET;
+      
+      // If neither method provides credentials, throw an error
+      if (!accessKeyId || !accessKeySecret) {
+        throw new Error(
+          'Aliyun credentials not provided. Please either set ALIYUN_ACCESS_TOKEN environment variable ' +
+          'with format "AccessKeyId|AccessKeySecret" or set both ALIBABA_CLOUD_ACCESS_KEY_ID and ' +
+          'ALIBABA_CLOUD_ACCESS_KEY_SECRET environment variables.'
+        );
+      }
     }
-    const [accessKeyId, accessKeySecret] = aliyunAccessToken.split('|');
-    if (!accessKeyId || !accessKeySecret) {
-      throw new Error('Invalid Aliyun Access Token format in ALIYUN_ACCESS_TOKEN. Expected "AccessKeyId|AccessKeySecret".');
-    }
+    
     const config = new OpenApi.Config({
       accessKeyId,
       accessKeySecret,

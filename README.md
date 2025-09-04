@@ -55,6 +55,27 @@ Next, configure your MCP client (such as Cursor) to use this server. Most MCP cl
 
 Replace `<ALIYUN_ACCESS_TOKEN>` with the token you created in step 1.
 
+Alternatively, you can use the separate environment variables:
+
+```json
+{
+  "mcpServers": {
+    "supabase": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@aliyun-supabase/mcp-server-supabase@latest",
+        "--features=aliyun",
+      ],
+      "env": {
+        "ALIBABA_CLOUD_ACCESS_KEY_ID": "<YOUR_AK>",
+        "ALIBABA_CLOUD_ACCESS_KEY_SECRET": "<YOUR_SK>"
+      }
+    }
+  }
+}
+```
+
 ## Tools
 
 _**Note:** This server is pre-1.0, so expect some breaking changes between versions. Since LLMs will automatically adapt to the tools available, this shouldn't affect most users._
