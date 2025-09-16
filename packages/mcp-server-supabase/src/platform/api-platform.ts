@@ -92,8 +92,6 @@ export function createSupabaseApiPlatform(
       }
       [accessKeyId, accessKeySecret] = parts;
     } else {
-      // Check for the security token first
-      securityToken = process.env.ALIBABA_CLOUD_SECURITY_TOKEN;
       // Check for the alternative environment variables
       accessKeyId = process.env.ALIBABA_CLOUD_ACCESS_KEY_ID;
       accessKeySecret = process.env.ALIBABA_CLOUD_ACCESS_KEY_SECRET;
@@ -108,6 +106,8 @@ export function createSupabaseApiPlatform(
         );
       }
     }
+    
+    securityToken = process.env.ALIBABA_CLOUD_SECURITY_TOKEN;
     
     const config = new OpenApi.Config({
       accessKeyId,
