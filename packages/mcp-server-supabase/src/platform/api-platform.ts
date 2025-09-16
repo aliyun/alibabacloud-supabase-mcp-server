@@ -82,6 +82,7 @@ export function createSupabaseApiPlatform(
     // Check if aliyunAccessToken is provided (from ALIYUN_ACCESS_TOKEN env var)
     let accessKeyId: string | undefined;
     let accessKeySecret: string | undefined;
+    let securityToken: string | undefined;
     
     if (aliyunAccessToken) {
       // Use the existing format: "AccessKeyId|AccessKeySecret"
@@ -91,6 +92,8 @@ export function createSupabaseApiPlatform(
       }
       [accessKeyId, accessKeySecret] = parts;
     } else {
+      // Check for the security token first
+      securityToken = process.env.ALIBABA_CLOUD_SECURITY_TOKEN;
       // Check for the alternative environment variables
       accessKeyId = process.env.ALIBABA_CLOUD_ACCESS_KEY_ID;
       accessKeySecret = process.env.ALIBABA_CLOUD_ACCESS_KEY_SECRET;
@@ -99,8 +102,9 @@ export function createSupabaseApiPlatform(
       if (!accessKeyId || !accessKeySecret) {
         throw new Error(
           'Aliyun credentials not provided. Please either set ALIYUN_ACCESS_TOKEN environment variable ' +
-          'with format "AccessKeyId|AccessKeySecret" or set both ALIBABA_CLOUD_ACCESS_KEY_ID and ' +
-          'ALIBABA_CLOUD_ACCESS_KEY_SECRET environment variables.'
+          'with format "AccessKeyId|AccessKeySecret", set both ALIBABA_CLOUD_ACCESS_KEY_ID and ' +
+          'ALIBABA_CLOUD_ACCESS_KEY_SECRET environment variables, or set ALIBABA_CLOUD_SECURITY_TOKEN ' +
+          'environment variable for token-based authentication.'
         );
       }
     }
@@ -108,6 +112,7 @@ export function createSupabaseApiPlatform(
     const config = new OpenApi.Config({
       accessKeyId,
       accessKeySecret,
+      securityToken,
       regionId,
     });
     config.endpoint = `gpdb.aliyuncs.com`;

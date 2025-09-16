@@ -76,6 +76,26 @@ Alternatively, you can use the separate environment variables:
 }
 ```
 
+If you're using temporary security credentials, you can use the security token instead:
+
+```json
+{
+  "mcpServers": {
+    "supabase": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@aliyun-supabase/mcp-server-supabase@latest",
+        "--features=aliyun",
+      ],
+      "env": {
+        "ALIBABA_CLOUD_SECURITY_TOKEN": "<YOUR_SECURITY_TOKEN>"
+      }
+    }
+  }
+}
+```
+
 ## Tools
 
 _**Note:** This server is pre-1.0, so expect some breaking changes between versions. Since LLMs will automatically adapt to the tools available, this shouldn't affect most users._
