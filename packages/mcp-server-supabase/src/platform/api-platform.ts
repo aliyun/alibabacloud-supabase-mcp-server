@@ -1065,6 +1065,79 @@ export function createSupabaseApiPlatform(
       }
     },
 
+    async executeSqlViaUrl<T>(options: {
+      url: string;
+      api_key: string;
+      sql: string;
+    }): Promise<T[]> {
+      const { url, api_key, sql } = options;
+      
+      // 确保 URL 有正确的协议
+      let requestUrl = url;
+      if (!requestUrl.startsWith('http://') && !requestUrl.startsWith('https://')) {
+        requestUrl = "https://" + requestUrl;
+      }
+      requestUrl = requestUrl + "/pg/query";
+      
+      try {
+        const response = await fetch(requestUrl, {
+          method: 'POST',
+          headers: {
+            'apikey': api_key,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ query: sql }),
+        });
+
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        const result = await response.json();
+        return result as T[];
+      } catch (error: any) {
+        console.error('Failed to execute SQL via URL:', error.message);
+        throw new Error(`Failed to execute SQL: ${error.message}`);
+      }
+    },
+
+    async listTablesViaUrl(options: {
+      url: string;
+      api_key: string;
+    }): Promise<Array<{ table_name: string }>> {
+      const { url, api_key } = options;
+      
+      // 确保 URL 有正确的协议
+      let requestUrl = url;
+      if (!requestUrl.startsWith('http://') && !requestUrl.startsWith('https://')) {
+        requestUrl = "https://" + requestUrl;
+      }
+      requestUrl = requestUrl + "/pg/query";
+      
+      const sql = "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'";
+      
+      try {
+        const response = await fetch(requestUrl, {
+          method: 'POST',
+          headers: {
+            'apikey': api_key,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ query: sql }),
+        });
+
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        const result = await response.json();
+        return result as Array<{ table_name: string }>;
+      } catch (error: any) {
+        console.error('Failed to list tables via URL:', error.message);
+        throw new Error(`Failed to list tables: ${error.message}`);
+      }
+    },
+
   };
 
   return platform;

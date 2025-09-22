@@ -320,6 +320,18 @@ export type SupabasePlatform = {
     vpc_id: string;
   }): Promise<any>;
 
+  // Direct database operations via URL and API key
+  executeSqlViaUrl<T>(options: {
+    url: string;
+    api_key: string;
+    sql: string;
+  }): Promise<T[]>;
+
+  listTablesViaUrl(options: {
+    url: string;
+    api_key: string;
+  }): Promise<Array<{ table_name: string }>>;
+
   // Edge functions
   listEdgeFunctions(projectId: string): Promise<EdgeFunction[]>;
   getEdgeFunction(

@@ -274,7 +274,7 @@ export async function getAliyunTools({ platform }: AliyunToolsOptions): Promise<
     }),
 
     execute_sql: tool({
-      description: 'Executes custom SQL queries on a Supabase project database by building and running a curl command. Requires PublicConnectUrl and serviceRoleKey.',
+      description: 'Executes custom SQL queries on a Supabase project database. First tries to use TypeScript interface, falls back to curl command if needed. Requires PublicConnectUrl and serviceRoleKey.',
       parameters: z.object({
         url: z.string().describe('PublicConnectUrl for the Supabase project'),
         api_key: z.string().describe('serviceRoleKey for authentication'),
@@ -282,64 +282,80 @@ export async function getAliyunTools({ platform }: AliyunToolsOptions): Promise<
       }),
       execute: async ({ url, api_key, sql }) => {
         try {
-          // 1. 准备和格式化参数
-          let requestUrl = url;
-          if (!requestUrl.startsWith('http://') && !requestUrl.startsWith('https://')) {
-            requestUrl = "http://" + requestUrl;
-          }
-          requestUrl = requestUrl + "/pg/query";
-          
-          const jsonData = JSON.stringify({ query: sql });
+          // 首先尝试使用 TypeScript 接口 (fetch)
+          try {
+            console.error('Debug - Attempting to execute SQL via TypeScript interface');
+            const result = await platform.executeSqlViaUrl({ url, api_key, sql });
+            return {
+              content: [{
+                type: 'text',
+                text: JSON.stringify(result, null, 2)
+              }]
+            };
+          } catch (tsError) {
+            console.error(`Debug - TypeScript interface failed: ${tsError instanceof Error ? tsError.message : 'Unknown error'}`);
+            console.error('Debug - Falling back to curl command');
+            
+            // 如果 TypeScript 接口失败，回退到 curl 命令
+            // 1. 准备和格式化参数
+            let requestUrl = url;
+            if (!requestUrl.startsWith('http://') && !requestUrl.startsWith('https://')) {
+              requestUrl = "http://" + requestUrl;
+            }
+            requestUrl = requestUrl + "/pg/query";
+            
+            const jsonData = JSON.stringify({ query: sql });
 
-          // 2. 安全地构建 curl 命令
-          //    使用 escapeShellArg 对每个动态部分进行转义，防止命令注入
-          const command = [
-            'curl',
-            '-X POST',
-            escapeShellArg(requestUrl),
-            '-H', escapeShellArg(`apikey: ${api_key}`),
-            '-H', escapeShellArg('Content-Type: application/json'),
-            '-d', escapeShellArg(jsonData)
-          ].join(' ');
+            // 2. 安全地构建 curl 命令
+            //    使用 escapeShellArg 对每个动态部分进行转义，防止命令注入
+            const command = [
+              'curl',
+              '-X POST',
+              escapeShellArg(requestUrl),
+              '-H', escapeShellArg(`apikey: ${api_key}`),
+              '-H', escapeShellArg('Content-Type: application/json'),
+              '-d', escapeShellArg(jsonData)
+            ].join(' ');
 
-          console.error(`Debug - Executing command: ${command}`);
+            console.error(`Debug - Executing curl command: ${command}`);
 
-          // 3. 执行命令并等待结果
-          const result = await new Promise((resolve, reject) => {
-            exec(command, (error, stdout, stderr) => {
-              if (error) {
-                // 如果命令执行失败（例如 curl 不存在，或返回非 0 退出码）
-                console.error(`Debug - exec error: ${error.message}`);
-                console.error(`Debug - stderr: ${stderr}`);
-                reject(new Error(`Command failed: ${stderr || error.message}`));
-                return;
-              }
-              if (stderr) {
-                // curl 可能会将进度信息等输出到 stderr，但我们仍然可以继续
-                console.warn(`Debug - stderr output: ${stderr}`);
-              }
-              
-              try {
-                // 尝试解析 stdout 输出的 JSON
-                const parsedOutput = JSON.parse(stdout);
-                resolve(parsedOutput);
-              } catch (parseError) {
-                // 如果 stdout 不是有效的 JSON
-                const parseErrorMessage = parseError instanceof Error ? parseError.message : String(parseError);
-                console.error(`Debug - JSON parse error: ${parseErrorMessage}`);
-                console.error(`Debug - stdout received: ${stdout}`);
-                reject(new Error(`Failed to parse curl output as JSON: ${stdout}`));
-              }
+            // 3. 执行命令并等待结果
+            const result = await new Promise((resolve, reject) => {
+              exec(command, (error, stdout, stderr) => {
+                if (error) {
+                  // 如果命令执行失败（例如 curl 不存在，或返回非 0 退出码）
+                  console.error(`Debug - exec error: ${error.message}`);
+                  console.error(`Debug - stderr: ${stderr}`);
+                  reject(new Error(`Command failed: ${stderr || error.message}`));
+                  return;
+                }
+                if (stderr) {
+                  // curl 可能会将进度信息等输出到 stderr，但我们仍然可以继续
+                  console.warn(`Debug - stderr output: ${stderr}`);
+                }
+                
+                try {
+                  // 尝试解析 stdout 输出的 JSON
+                  const parsedOutput = JSON.parse(stdout);
+                  resolve(parsedOutput);
+                } catch (parseError) {
+                  // 如果 stdout 不是有效的 JSON
+                  const parseErrorMessage = parseError instanceof Error ? parseError.message : String(parseError);
+                  console.error(`Debug - JSON parse error: ${parseErrorMessage}`);
+                  console.error(`Debug - stdout received: ${stdout}`);
+                  reject(new Error(`Failed to parse curl output as JSON: ${stdout}`));
+                }
+              });
             });
-          });
 
-          // 4. 返回成功的结果
-          return {
-            content: [{
-              type: 'text',
-              text: JSON.stringify(result, null, 2)
-            }]
-          };
+            // 4. 返回成功的结果
+            return {
+              content: [{
+                type: 'text',
+                text: JSON.stringify(result, null, 2)
+              }]
+            };
+          }
 
         } catch (error) {
           const message = error instanceof Error ? error.message : 'Unknown error occurred';
@@ -352,67 +368,83 @@ export async function getAliyunTools({ platform }: AliyunToolsOptions): Promise<
     }),
 
     list_table: tool({
-      description: 'Lists all tables in the public schema of a Supabase project database. Useful for exploring database structure and existing data models. Requires the project\'s PublicConnectUrl as url and serviceRoleKey as api_key obtained from other tools.',
+      description: 'Lists all tables in the public schema of a Supabase project database. First tries to use TypeScript interface, falls back to curl command if needed. Requires the project\'s PublicConnectUrl as url and serviceRoleKey as api_key obtained from other tools.',
       parameters: z.object({
         url: z.string().describe('PublicConnectUrl for the Supabase project'),
         api_key: z.string().describe('serviceRoleKey for authentication'),
       }),
       execute: async ({ url, api_key }) => {
         try {
-          // 1. 准备和格式化参数
-          let requestUrl = url;
-          if (!requestUrl.startsWith('http://') && !requestUrl.startsWith('https://')) {
-            requestUrl = "http://" + requestUrl;
-          }
-          requestUrl = requestUrl + "/pg/query";
-          
-          const sql = "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'";
-          const jsonData = JSON.stringify({ query: sql });
+          // 首先尝试使用 TypeScript 接口 (fetch)
+          try {
+            console.error('Debug - Attempting to list tables via TypeScript interface');
+            const result = await platform.listTablesViaUrl({ url, api_key });
+            return {
+              content: [{
+                type: 'text',
+                text: JSON.stringify(result, null, 2)
+              }]
+            };
+          } catch (tsError) {
+            console.error(`Debug - TypeScript interface failed: ${tsError instanceof Error ? tsError.message : 'Unknown error'}`);
+            console.error('Debug - Falling back to curl command');
+            
+            // 如果 TypeScript 接口失败，回退到 curl 命令
+            // 1. 准备和格式化参数
+            let requestUrl = url;
+            if (!requestUrl.startsWith('http://') && !requestUrl.startsWith('https://')) {
+              requestUrl = "http://" + requestUrl;
+            }
+            requestUrl = requestUrl + "/pg/query";
+            
+            const sql = "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'";
+            const jsonData = JSON.stringify({ query: sql });
 
-          // 2. 安全地构建 curl 命令
-          const command = [
-            'curl',
-            '-X POST',
-            escapeShellArg(requestUrl),
-            '-H', escapeShellArg(`apikey: ${api_key}`),
-            '-H', escapeShellArg('Content-Type: application/json'),
-            '-d', escapeShellArg(jsonData)
-          ].join(' ');
+            // 2. 安全地构建 curl 命令
+            const command = [
+              'curl',
+              '-X POST',
+              escapeShellArg(requestUrl),
+              '-H', escapeShellArg(`apikey: ${api_key}`),
+              '-H', escapeShellArg('Content-Type: application/json'),
+              '-d', escapeShellArg(jsonData)
+            ].join(' ');
 
-          console.error(`Debug list_table - Executing command: ${command}`);
+            console.error(`Debug list_table - Executing curl command: ${command}`);
 
-          // 3. 执行命令并等待结果
-          const result = await new Promise((resolve, reject) => {
-            exec(command, (error, stdout, stderr) => {
-              if (error) {
-                console.error(`Debug - exec error: ${error.message}`);
-                console.error(`Debug - stderr: ${stderr}`);
-                reject(new Error(`Command failed: ${stderr || error.message}`));
-                return;
-              }
-              if (stderr) {
-                console.warn(`Debug - stderr output: ${stderr}`);
-              }
-              
-              try {
-                const parsedOutput = JSON.parse(stdout);
-                resolve(parsedOutput);
-              } catch (parseError) {
-                const parseErrorMessage = parseError instanceof Error ? parseError.message : String(parseError);
-                console.error(`Debug - JSON parse error: ${parseErrorMessage}`);
-                console.error(`Debug - stdout received: ${stdout}`);
-                reject(new Error(`Failed to parse curl output as JSON: ${stdout}`));
-              }
+            // 3. 执行命令并等待结果
+            const result = await new Promise((resolve, reject) => {
+              exec(command, (error, stdout, stderr) => {
+                if (error) {
+                  console.error(`Debug - exec error: ${error.message}`);
+                  console.error(`Debug - stderr: ${stderr}`);
+                  reject(new Error(`Command failed: ${stderr || error.message}`));
+                  return;
+                }
+                if (stderr) {
+                  console.warn(`Debug - stderr output: ${stderr}`);
+                }
+                
+                try {
+                  const parsedOutput = JSON.parse(stdout);
+                  resolve(parsedOutput);
+                } catch (parseError) {
+                  const parseErrorMessage = parseError instanceof Error ? parseError.message : String(parseError);
+                  console.error(`Debug - JSON parse error: ${parseErrorMessage}`);
+                  console.error(`Debug - stdout received: ${stdout}`);
+                  reject(new Error(`Failed to parse curl output as JSON: ${stdout}`));
+                }
+              });
             });
-          });
 
-          // 4. 返回成功的结果
-          return {
-            content: [{
-              type: 'text',
-              text: JSON.stringify(result, null, 2)
-            }]
-          };
+            // 4. 返回成功的结果
+            return {
+              content: [{
+                type: 'text',
+                text: JSON.stringify(result, null, 2)
+              }]
+            };
+          }
 
         } catch (error) {
           const message = error instanceof Error ? error.message : 'Unknown error occurred';
