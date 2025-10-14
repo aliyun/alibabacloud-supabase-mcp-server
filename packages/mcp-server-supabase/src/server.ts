@@ -118,7 +118,7 @@ export function createSupabaseMcpServer(options: SupabaseMcpServerOptions) {
       }
       
       if (enabledFeatures.has('aliyun')) {
-        Object.assign(tools, await getAliyunTools({ platform }));
+        Object.assign(tools, await getAliyunTools({ platform, readOnly }));
       }
       
       if (enabledFeatures.has('branching')) {

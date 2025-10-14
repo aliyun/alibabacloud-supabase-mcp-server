@@ -5,6 +5,7 @@ import { exec } from 'child_process';
 
 export type AliyunToolsOptions = {
   platform: SupabasePlatform;
+  readOnly?: boolean;
 };
 
 /**
@@ -19,7 +20,20 @@ const escapeShellArg = (arg: string): string => {
   return `'${arg.replace(/'/g, "'\\''")}'`;
 };
 
-export async function getAliyunTools({ platform }: AliyunToolsOptions): Promise<Record<string, Tool>> {
+/**
+ * 对正则表达式中的特殊字符进行转义，防止正则注入。
+ */
+const escapeRegExp = (str: string): string => {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+};
+
+export async function getAliyunTools({ platform, readOnly }: AliyunToolsOptions): Promise<Record<string, Tool>> {
+  
+  const WRITE_KEYWORDS = [
+    'CREATE', 'DROP', 'ALTER', 'TRUNCATE',
+    'INSERT', 'UPDATE', 'DELETE', 'MERGE', 'REPLACE'
+  ];
+
   return {
     list_aliyun_supabase_projects: tool({
       description: 'Lists all Supabase projects deployed on the Aliyun platform. Use this to retrieve a list of existing projects with their basic information. If no projects are found in the default region (cn-hangzhou), try other regions obtained from the describe_regions tool.',
@@ -281,6 +295,35 @@ export async function getAliyunTools({ platform }: AliyunToolsOptions): Promise<
         sql: z.string().describe('SQL query to execute')
       }),
       execute: async ({ url, api_key, sql }) => {
+        // Check for DDL operations in read-only mode
+        if (readOnly) {
+          const upperSql = sql.toUpperCase().trim();
+          const isWriteOperation = WRITE_KEYWORDS.some(keyword => {
+            const escapedKeyword = escapeRegExp(keyword);
+            const regex = new RegExp(`\\b${escapedKeyword}\\b`, 'i');
+            return regex.test(upperSql);
+          });
+
+          if (isWriteOperation) {
+            const matchedKeyword = WRITE_KEYWORDS.find(k => {
+              const escaped = escapeRegExp(k);
+              return new RegExp(`\\b${escaped}\\b`, 'i').test(upperSql);
+            });
+            throw new Error(`Cannot execute write operation '${sql}' in read-only mode. Detected write keyword: ${matchedKeyword}`);
+          }
+
+          // 检测用户 SQL 是否已有事务
+          const hasTransaction = /BEGIN|START\s+TRANSACTION/i.test(sql);
+
+          // 如果已有事务，仅在事务中插入只读设置
+          if (hasTransaction) {
+            sql = sql.replace(/BEGIN/i, 'BEGIN;\nSET LOCAL transaction_read_only = on;');
+          } else {
+            // 否则包裹为只读事务
+            sql = `BEGIN;\nSET LOCAL transaction_read_only = on;\n${sql}\nROLLBACK;`;
+          }
+        }
+        
         try {
           // 首先尝试使用 TypeScript 接口 (fetch)
           try {
@@ -304,7 +347,9 @@ export async function getAliyunTools({ platform }: AliyunToolsOptions): Promise<
             }
             requestUrl = requestUrl + "/pg/query";
             
-            const jsonData = JSON.stringify({ query: sql });
+            // 构建请求体
+            const requestBody = { query: sql };
+            const jsonData = JSON.stringify(requestBody);
 
             // 2. 安全地构建 curl 命令
             //    使用 escapeShellArg 对每个动态部分进行转义，防止命令注入
@@ -398,7 +443,9 @@ export async function getAliyunTools({ platform }: AliyunToolsOptions): Promise<
             requestUrl = requestUrl + "/pg/query";
             
             const sql = "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'";
-            const jsonData = JSON.stringify({ query: sql });
+            // 构建请求体
+            const requestBody = { query: sql };
+            const jsonData = JSON.stringify(requestBody);
 
             // 2. 安全地构建 curl 命令
             const command = [

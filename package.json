@@ -17,6 +17,7 @@
   "dependencies": {
     "@alicloud/gpdb20160503": "^2.7.1",
     "axios": "^1.11.0",
+    "libpg-query": "^17.6.0",
     "run": "^1.5.0"
   },
   "version": "1.2.0"

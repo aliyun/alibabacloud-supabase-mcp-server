@@ -1079,6 +1079,9 @@ export function createSupabaseApiPlatform(
       }
       requestUrl = requestUrl + "/pg/query";
       
+      // 构建请求体
+      const requestBody = { query: sql };
+      
       try {
         const response = await fetch(requestUrl, {
           method: 'POST',
@@ -1086,7 +1089,7 @@ export function createSupabaseApiPlatform(
             'apikey': api_key,
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify({ query: sql }),
+          body: JSON.stringify(requestBody),
         });
 
         if (!response.ok) {
