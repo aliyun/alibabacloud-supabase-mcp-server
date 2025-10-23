@@ -9,7 +9,7 @@ export default defineConfig([
     sourcemap: true,
     dts: true,
     minify: true, // 建议在调试期间设为 false，更容易看懂打包后的代码
-    splitting: true,
+    splitting: false, // 禁用代码分割以避免相对路径问题
     loader: {
       '.sql': 'text',
     },
