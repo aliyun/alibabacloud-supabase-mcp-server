@@ -1,7 +1,8 @@
 # Aliyun Supabase
 
-Learn more about our product  [Supabase on Alibaba Cloud (AnalyticDB for PostgreSQL)](https://www.alibabacloud.com/help/en/analyticdb/analyticdb-for-postgresql/user-guide/supabase/).
-Deploy Supabase **for free** on Alibaba Cloud today.
+> 🎉 **Supabase on Alibaba Cloud is FREE!** Deploy Supabase for free on Alibaba Cloud today.
+
+> **Free for Developers**: Learn more about our product [Supabase on Alibaba Cloud (AnalyticDB for PostgreSQL)](https://www.alibabacloud.com/help/en/analyticdb/analyticdb-for-postgresql/user-guide/supabase/) - available at no cost.
 
 Learn more about [Alibaba Cloud Supabase MCP](https://www.alibabacloud.com/help/en/analyticdb/analyticdb-for-postgresql/user-guide/supabase-mcp-user-guide?spm=a2c63.p38356.help-menu-92664.d_2_0_0.632d1bccKdiUyn).
 
@@ -76,7 +77,16 @@ Alternatively, you can use the separate environment variables:
 }
 ```
 
-If you're using temporary security credentials, you can use the security token instead:
+### Read-Only Mode
+
+For enhanced security, especially when working with production databases, you can enable read-only mode by adding the `--read-only` flag. In read-only mode:
+
+- The `execute_sql` tool will automatically wrap SQL queries in read-only transactions
+- All write operations (CREATE, DROP, ALTER, INSERT, UPDATE, DELETE, etc.) are blocked
+- Only SELECT queries and other read operations are permitted
+- The server will reject any attempts to modify data or schema
+
+Enable read-only mode by adding `--read-only` to your args:
 
 ```json
 {
@@ -87,14 +97,18 @@ If you're using temporary security credentials, you can use the security token i
         "-y",
         "@aliyun-supabase/mcp-server-supabase@latest",
         "--features=aliyun",
+        "--read-only"
       ],
       "env": {
-        "ALIBABA_CLOUD_SECURITY_TOKEN": "<YOUR_SECURITY_TOKEN>"
+        "ALIBABA_CLOUD_ACCESS_KEY_ID": "<YOUR_AK>",
+        "ALIBABA_CLOUD_ACCESS_KEY_SECRET": "<YOUR_SK>"
       }
     }
   }
 }
 ```
+
+> **Note:** When `--read-only` mode is enabled, write operations will automatically be wrapped in a read-only transaction that will be rolled back, ensuring no data changes are committed.
 
 ## Tools
 
@@ -106,18 +120,30 @@ The following Supabase tools are available to the LLM, [grouped by feature](#fea
 
 Disabled by default. Use `aliyun` to target this group of tools with the [`--features`](#feature-groups) option.
 
+The Aliyun tools are organized into the following categories:
+
+**Project Management:**
 - `list_aliyun_supabase_projects`: Lists all Supabase projects deployed on the Aliyun platform. Use this to retrieve a list of existing projects with their basic information. If no projects are found in the default region (cn-hangzhou), try other regions obtained from the describe_regions tool.
 - `get_supabase_project`: Gets details for a specific Supabase project on Aliyun platform.
+- `create_supabase_project`: Create a new Supabase project on Aliyun platform.
+- `delete_supabase_project`: Delete a Supabase project on Aliyun platform.
+
+**Project Configuration:**
 - `get_supabase_project_api_keys`: Gets the Supabase project API keys including anon key and serviceRoleKey.
 - `modify_supabase_project_security_ip_list`: Modify the IP whitelist for a Supabase project. You need to add the client IP address or IP address range to the whitelist before using the Supabase instance.
 - `reset_supabase_project_password`: Reset the database password for a Supabase project.
-- `create_supabase_project`: Create a new Supabase project on Aliyun platform.
-- `delete_supabase_project`: Delete a Supabase project on Aliyun platform.
+
+**Infrastructure:**
 - `describe_regions`: Describe available regions and zones for Aliyun Supabase projects.
 - `describe_rds_vpcs`: Describe available VPCs in Aliyun for Supabase project deployment.
 - `describe_rds_vswitches`: Describe available vSwitches in Aliyun for Supabase project deployment.
-- `execute_sql`: Executes custom SQL queries on a Supabase project database by building and running a curl command. Requires PublicConnectUrl and serviceRoleKey.
-- `list_table`: Lists all tables in the public schema of a Supabase project database. Useful for exploring database structure and existing data models. Requires the project's PublicConnectUrl as url and serviceRoleKey as api_key obtained from other tools.
+
+**Database Operations:**
+- `execute_sql`: Executes custom SQL queries on a Supabase project database by building and running a curl command. Requires PublicConnectUrl and serviceRoleKey. When run in read-only mode (with `--read-only` flag), write operations are automatically wrapped in a read-only transaction and rolled back to prevent data changes.
+- `list_table`: Lists all tables in specified schemas of a Supabase project database. By default lists all non-system tables, but can filter by schema. Useful for exploring database structure and existing data models. Requires the project's PublicConnectUrl as url and serviceRoleKey as api_key obtained from other tools.
+- `list_columns`: Lists all columns in a table with detailed metadata including data type, nullable status, default values, and constraints. Requires the project's PublicConnectUrl as url and serviceRoleKey as api_key obtained from other tools.
+- `list_indexes`: Lists all indexes on tables in a schema including index name, table name, and index definition. Requires the project's PublicConnectUrl as url and serviceRoleKey as api_key obtained from other tools.
+- `list_extensions`: Lists all PostgreSQL extensions installed in the database. Shows extension name, version, schema, and description. Requires the project's PublicConnectUrl as url and serviceRoleKey as api_key obtained from other tools.
 
 ## Security risks
 

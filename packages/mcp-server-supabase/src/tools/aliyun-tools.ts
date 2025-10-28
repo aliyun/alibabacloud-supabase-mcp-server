@@ -413,17 +413,34 @@ export async function getAliyunTools({ platform, readOnly }: AliyunToolsOptions)
     }),
 
     list_table: tool({
-      description: 'Lists all tables in the public schema of a Supabase project database. First tries to use TypeScript interface, falls back to curl command if needed. Requires the project\'s PublicConnectUrl as url and serviceRoleKey as api_key obtained from other tools.',
+      description: 'Lists all tables in specified schemas of a Supabase project database. By default lists all non-system tables, but can filter by schema. First tries to use TypeScript interface, falls back to curl command if needed. Requires the project\'s PublicConnectUrl as url and serviceRoleKey as api_key obtained from other tools.',
       parameters: z.object({
         url: z.string().describe('PublicConnectUrl for the Supabase project'),
         api_key: z.string().describe('serviceRoleKey for authentication'),
+        schemas: z.array(z.string()).optional().describe('List of schema names to filter tables. If not specified, returns all non-system schemas.'),
       }),
-      execute: async ({ url, api_key }) => {
+      execute: async ({ url, api_key, schemas }) => {
         try {
-          // 首先尝试使用 TypeScript 接口 (fetch)
+          // 构建 SQL 查询
+          let sql: string;
+          if (schemas && schemas.length > 0) {
+            // 如果指定了 schemas，只查询这些 schema
+            const schemaList = schemas.map(s => `'${s}'`).join(',');
+            sql = `SELECT table_schema, table_name, table_type 
+                    FROM information_schema.tables 
+                    WHERE table_schema IN (${schemaList})
+                    ORDER BY table_schema, table_name`;
+          } else {
+            // 如果没有指定 schemas，排除系统表
+            sql = `SELECT table_schema, table_name, table_type 
+                    FROM information_schema.tables 
+                    WHERE table_schema NOT IN ('information_schema', 'pg_catalog', 'pg_toast')
+                    ORDER BY table_schema, table_name`;
+          }
+
+          // 使用平台接口执行 SQL
           try {
-            console.error('Debug - Attempting to list tables via TypeScript interface');
-            const result = await platform.listTablesViaUrl({ url, api_key });
+            const result = await platform.executeSqlViaUrl({ url, api_key, sql });
             return {
               content: [{
                 type: 'text',
@@ -435,19 +452,15 @@ export async function getAliyunTools({ platform, readOnly }: AliyunToolsOptions)
             console.error('Debug - Falling back to curl command');
             
             // 如果 TypeScript 接口失败，回退到 curl 命令
-            // 1. 准备和格式化参数
             let requestUrl = url;
             if (!requestUrl.startsWith('http://') && !requestUrl.startsWith('https://')) {
-              requestUrl = "http://" + requestUrl;
+              requestUrl = "https://" + requestUrl;
             }
             requestUrl = requestUrl + "/pg/query";
             
-            const sql = "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'";
-            // 构建请求体
             const requestBody = { query: sql };
             const jsonData = JSON.stringify(requestBody);
 
-            // 2. 安全地构建 curl 命令
             const command = [
               'curl',
               '-X POST',
@@ -459,7 +472,6 @@ export async function getAliyunTools({ platform, readOnly }: AliyunToolsOptions)
 
             console.error(`Debug list_table - Executing curl command: ${command}`);
 
-            // 3. 执行命令并等待结果
             const result = await new Promise((resolve, reject) => {
               exec(command, (error, stdout, stderr) => {
                 if (error) {
@@ -484,7 +496,6 @@ export async function getAliyunTools({ platform, readOnly }: AliyunToolsOptions)
               });
             });
 
-            // 4. 返回成功的结果
             return {
               content: [{
                 type: 'text',
@@ -493,6 +504,298 @@ export async function getAliyunTools({ platform, readOnly }: AliyunToolsOptions)
             };
           }
 
+        } catch (error) {
+          const message = error instanceof Error ? error.message : 'Unknown error occurred';
+          console.error(`Debug - Error: ${message}`);
+          return {
+            content: [{ type: 'text', text: `Error: ${message}` }]
+          };
+        }
+      }
+    }),
+
+    list_columns: tool({
+      description: 'Lists all columns in a table with detailed metadata including data type, nullable status, default values, and constraints. Requires the project\'s PublicConnectUrl as url and serviceRoleKey as api_key obtained from other tools.',
+      parameters: z.object({
+        url: z.string().describe('PublicConnectUrl for the Supabase project'),
+        api_key: z.string().describe('serviceRoleKey for authentication'),
+        table_name: z.string().describe('The name of the table to list columns from'),
+        schema: z.string().optional().default('public').describe('The schema name (defaults to public)'),
+      }),
+      execute: async ({ url, api_key, table_name, schema = 'public' }) => {
+        try {
+          // 构建 SQL 查询
+          const sql = `
+            SELECT 
+              column_name,
+              data_type,
+              is_nullable,
+              column_default,
+              character_maximum_length,
+              numeric_precision,
+              numeric_scale,
+              ordinal_position
+            FROM information_schema.columns 
+            WHERE table_schema = '${schema}' AND table_name = '${table_name}'
+            ORDER BY ordinal_position
+          `;
+
+          // 使用平台接口执行 SQL
+          try {
+            const result = await platform.executeSqlViaUrl({ url, api_key, sql });
+            return {
+              content: [{
+                type: 'text',
+                text: JSON.stringify(result, null, 2)
+              }]
+            };
+          } catch (tsError) {
+            console.error(`Debug - TypeScript interface failed: ${tsError instanceof Error ? tsError.message : 'Unknown error'}`);
+            console.error('Debug - Falling back to curl command');
+            
+            // 如果 TypeScript 接口失败，回退到 curl 命令
+            let requestUrl = url;
+            if (!requestUrl.startsWith('http://') && !requestUrl.startsWith('https://')) {
+              requestUrl = "https://" + requestUrl;
+            }
+            requestUrl = requestUrl + "/pg/query";
+            
+            const requestBody = { query: sql };
+            const jsonData = JSON.stringify(requestBody);
+
+            const command = [
+              'curl',
+              '-X POST',
+              escapeShellArg(requestUrl),
+              '-H', escapeShellArg(`apikey: ${api_key}`),
+              '-H', escapeShellArg('Content-Type: application/json'),
+              '-d', escapeShellArg(jsonData)
+            ].join(' ');
+
+            console.error(`Debug list_columns - Executing curl command: ${command}`);
+
+            const result = await new Promise((resolve, reject) => {
+              exec(command, (error, stdout, stderr) => {
+                if (error) {
+                  console.error(`Debug - exec error: ${error.message}`);
+                  console.error(`Debug - stderr: ${stderr}`);
+                  reject(new Error(`Command failed: ${stderr || error.message}`));
+                  return;
+                }
+                if (stderr) {
+                  console.warn(`Debug - stderr output: ${stderr}`);
+                }
+                
+                try {
+                  const parsedOutput = JSON.parse(stdout);
+                  resolve(parsedOutput);
+                } catch (parseError) {
+                  const parseErrorMessage = parseError instanceof Error ? parseError.message : String(parseError);
+                  console.error(`Debug - JSON parse error: ${parseErrorMessage}`);
+                  console.error(`Debug - stdout received: ${stdout}`);
+                  reject(new Error(`Failed to parse curl output as JSON: ${stdout}`));
+                }
+              });
+            });
+
+            return {
+              content: [{
+                type: 'text',
+                text: JSON.stringify(result, null, 2)
+              }]
+            };
+          }
+        } catch (error) {
+          const message = error instanceof Error ? error.message : 'Unknown error occurred';
+          console.error(`Debug - Error: ${message}`);
+          return {
+            content: [{ type: 'text', text: `Error: ${message}` }]
+          };
+        }
+      }
+    }),
+
+    list_indexes: tool({
+      description: 'Lists all indexes on tables in a schema including index name, table name, and index definition. Requires the project\'s PublicConnectUrl as url and serviceRoleKey as api_key obtained from other tools.',
+      parameters: z.object({
+        url: z.string().describe('PublicConnectUrl for the Supabase project'),
+        api_key: z.string().describe('serviceRoleKey for authentication'),
+        schema: z.string().optional().default('public').describe('The schema name (defaults to public)'),
+      }),
+      execute: async ({ url, api_key, schema = 'public' }) => {
+        try {
+          // 构建 SQL 查询
+          const sql = `
+            SELECT 
+              schemaname,
+              tablename,
+              indexname,
+              indexdef
+            FROM pg_indexes
+            WHERE schemaname = '${schema}'
+            ORDER BY tablename, indexname
+          `;
+
+          // 使用平台接口执行 SQL
+          try {
+            const result = await platform.executeSqlViaUrl({ url, api_key, sql });
+            return {
+              content: [{
+                type: 'text',
+                text: JSON.stringify(result, null, 2)
+              }]
+            };
+          } catch (tsError) {
+            console.error(`Debug - TypeScript interface failed: ${tsError instanceof Error ? tsError.message : 'Unknown error'}`);
+            console.error('Debug - Falling back to curl command');
+            
+            // 如果 TypeScript 接口失败，回退到 curl 命令
+            let requestUrl = url;
+            if (!requestUrl.startsWith('http://') && !requestUrl.startsWith('https://')) {
+              requestUrl = "https://" + requestUrl;
+            }
+            requestUrl = requestUrl + "/pg/query";
+            
+            const requestBody = { query: sql };
+            const jsonData = JSON.stringify(requestBody);
+
+            const command = [
+              'curl',
+              '-X POST',
+              escapeShellArg(requestUrl),
+              '-H', escapeShellArg(`apikey: ${api_key}`),
+              '-H', escapeShellArg('Content-Type: application/json'),
+              '-d', escapeShellArg(jsonData)
+            ].join(' ');
+
+            console.error(`Debug list_indexes - Executing curl command: ${command}`);
+
+            const result = await new Promise((resolve, reject) => {
+              exec(command, (error, stdout, stderr) => {
+                if (error) {
+                  console.error(`Debug - exec error: ${error.message}`);
+                  console.error(`Debug - stderr: ${stderr}`);
+                  reject(new Error(`Command failed: ${stderr || error.message}`));
+                  return;
+                }
+                if (stderr) {
+                  console.warn(`Debug - stderr output: ${stderr}`);
+                }
+                
+                try {
+                  const parsedOutput = JSON.parse(stdout);
+                  resolve(parsedOutput);
+                } catch (parseError) {
+                  const parseErrorMessage = parseError instanceof Error ? parseError.message : String(parseError);
+                  console.error(`Debug - JSON parse error: ${parseErrorMessage}`);
+                  console.error(`Debug - stdout received: ${stdout}`);
+                  reject(new Error(`Failed to parse curl output as JSON: ${stdout}`));
+                }
+              });
+            });
+
+            return {
+              content: [{
+                type: 'text',
+                text: JSON.stringify(result, null, 2)
+              }]
+            };
+          }
+        } catch (error) {
+          const message = error instanceof Error ? error.message : 'Unknown error occurred';
+          console.error(`Debug - Error: ${message}`);
+          return {
+            content: [{ type: 'text', text: `Error: ${message}` }]
+          };
+        }
+      }
+    }),
+
+    list_extensions: tool({
+      description: 'Lists all PostgreSQL extensions installed in the database. Shows extension name, version, schema, and description. Requires the project\'s PublicConnectUrl as url and serviceRoleKey as api_key obtained from other tools.',
+      parameters: z.object({
+        url: z.string().describe('PublicConnectUrl for the Supabase project'),
+        api_key: z.string().describe('serviceRoleKey for authentication'),
+      }),
+      execute: async ({ url, api_key }) => {
+        try {
+          // 构建 SQL 查询
+          const sql = `
+            SELECT 
+              extname as extension_name,
+              extversion as version,
+              n.nspname as schema,
+              obj_description(e.oid, 'pg_extension') as comment
+            FROM pg_extension e
+            JOIN pg_namespace n ON e.extnamespace = n.oid
+            ORDER BY extname
+          `;
+
+          // 使用平台接口执行 SQL
+          try {
+            const result = await platform.executeSqlViaUrl({ url, api_key, sql });
+            return {
+              content: [{
+                type: 'text',
+                text: JSON.stringify(result, null, 2)
+              }]
+            };
+          } catch (tsError) {
+            console.error(`Debug - TypeScript interface failed: ${tsError instanceof Error ? tsError.message : 'Unknown error'}`);
+            console.error('Debug - Falling back to curl command');
+            
+            // 如果 TypeScript 接口失败，回退到 curl 命令
+            let requestUrl = url;
+            if (!requestUrl.startsWith('http://') && !requestUrl.startsWith('https://')) {
+              requestUrl = "https://" + requestUrl;
+            }
+            requestUrl = requestUrl + "/pg/query";
+            
+            const requestBody = { query: sql };
+            const jsonData = JSON.stringify(requestBody);
+
+            const command = [
+              'curl',
+              '-X POST',
+              escapeShellArg(requestUrl),
+              '-H', escapeShellArg(`apikey: ${api_key}`),
+              '-H', escapeShellArg('Content-Type: application/json'),
+              '-d', escapeShellArg(jsonData)
+            ].join(' ');
+
+            console.error(`Debug list_extensions - Executing curl command: ${command}`);
+
+            const result = await new Promise((resolve, reject) => {
+              exec(command, (error, stdout, stderr) => {
+                if (error) {
+                  console.error(`Debug - exec error: ${error.message}`);
+                  console.error(`Debug - stderr: ${stderr}`);
+                  reject(new Error(`Command failed: ${stderr || error.message}`));
+                  return;
+                }
+                if (stderr) {
+                  console.warn(`Debug - stderr output: ${stderr}`);
+                }
+                
+                try {
+                  const parsedOutput = JSON.parse(stdout);
+                  resolve(parsedOutput);
+                } catch (parseError) {
+                  const parseErrorMessage = parseError instanceof Error ? parseError.message : String(parseError);
+                  console.error(`Debug - JSON parse error: ${parseErrorMessage}`);
+                  console.error(`Debug - stdout received: ${stdout}`);
+                  reject(new Error(`Failed to parse curl output as JSON: ${stdout}`));
+                }
+              });
+            });
+
+            return {
+              content: [{
+                type: 'text',
+                text: JSON.stringify(result, null, 2)
+              }]
+            };
+          }
         } catch (error) {
           const message = error instanceof Error ? error.message : 'Unknown error occurred';
           console.error(`Debug - Error: ${message}`);
