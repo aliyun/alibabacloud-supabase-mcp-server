@@ -145,6 +145,13 @@ The Aliyun tools are organized into the following categories:
 - `list_indexes`: Lists all indexes on tables in a schema including index name, table name, and index definition. Requires the project's PublicConnectUrl as url and serviceRoleKey as api_key obtained from other tools.
 - `list_extensions`: Lists all PostgreSQL extensions installed in the database. Shows extension name, version, schema, and description. Requires the project's PublicConnectUrl as url and serviceRoleKey as api_key obtained from other tools.
 
+#### Edge Functions
+
+- **`deploy_edge_function`**: Deploys an Edge Function to a Supabase project on Aliyun. Requires the project's PublicConnectUrl as url and serviceRoleKey as api_key. The function file must be named `index.ts` and written in TypeScript. Supports optional JWT verification configuration. Note: If your function code contains import statements, ensure your Supabase instance has public internet access to download dependencies.
+- **`list_edge_functions`**: Lists all Edge Functions in a Supabase project on Aliyun. Requires the project's PublicConnectUrl as url and serviceRoleKey as api_key. Returns function metadata including name, slug, status, version, and creation/update timestamps.
+- **`invoke_edge_function`**: Invokes an Edge Function in a Supabase project on Aliyun. Requires the project's PublicConnectUrl as url and anon key (not serviceRoleKey) for authentication. Supports optional JSON data to send as request body. Returns the function's response.
+- **`delete_edge_function`**: Deletes an Edge Function from a Supabase project on Aliyun. Requires the project's PublicConnectUrl as url and serviceRoleKey as api_key. Specify the function name (slug) to delete.
+
 ## Security risks
 
 Connecting any data source to an LLM carries inherent risks, especially when it stores sensitive data. Supabase is no exception, so it's important to discuss what risks you should be aware of and extra precautions you can take to lower them.

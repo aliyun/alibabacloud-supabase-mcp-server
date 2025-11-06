@@ -806,5 +806,487 @@ export async function getAliyunTools({ platform, readOnly }: AliyunToolsOptions)
       }
     }),
 
+    deploy_edge_function: tool({
+      description: 'Deploys an Edge Function to a Supabase project on Aliyun. Requires the project\'s PublicConnectUrl as url and serviceRoleKey as api_key obtained from other tools. The TypeScript file must be named index.ts.',
+      parameters: z.object({
+        url: z.string().describe('PublicConnectUrl for the Supabase project (e.g., https://sbp-xxx.supabase.opentrust.net)'),
+        api_key: z.string().describe('serviceRoleKey for authentication'),
+        slug: z.string().describe('Function slug (identifier)'),
+        name: z.string().describe('Function name'),
+        verify_jwt: z.boolean().optional().default(true).describe('Whether to verify JWT (default: true)'),
+        file_content: z.string().describe('The content of the function file to deploy. The file must be named index.ts.'),
+      }),
+      execute: async ({ url, api_key, slug, name, verify_jwt = true, file_content }) => {
+        // 检查代码中是否包含 import 语句
+        const hasImport = /import\s+.*from|import\s+["']|import\s+type\s+.*from|import\s*\(/.test(file_content);
+        
+        // 如果检测到 import，保存警告信息
+        const warningMessage = hasImport 
+          ? 'The edge function code contains import statements. When using imports, you must ensure that your Supabase instance has access to the public internet to download dependencies. For more information about getting access to the public internet, please refer to the following link: https://help.aliyun.com/zh/analyticdb/analyticdb-for-postgresql/support/how-to-enable-public-network-access-for-analyticdb-supabase?spm=a2c4g.11186623.help-menu-search-92664.d_0'
+          : null;
+        
+        // 打印警告信息到控制台
+        if (warningMessage) {
+          console.warn(`Warning: ${warningMessage}`);
+        }
+        
+        try {
+          // 强制使用 index.ts 作为文件名
+          const entrypoint_path = 'index.ts';
+          
+          // 构建 API 端点
+          let apiUrl = url;
+          if (!apiUrl.startsWith('http://') && !apiUrl.startsWith('https://')) {
+            apiUrl = "https://" + apiUrl;
+          }
+          const apiEndpoint = `${apiUrl}/api/edge-api/v1/projects/default/functions/deploy?slug=${encodeURIComponent(slug)}`;
+
+          // 构建 metadata JSON
+          const metadata = {
+            entrypoint_path,
+            name,
+            verify_jwt,
+          };
+          const metadataJson = JSON.stringify(metadata);
+
+          // 调试信息：与 bash 脚本的输出格式保持一致
+          console.error(`🚀 Deploying function: ${slug}`);
+          console.error(`📍 API Endpoint: ${apiEndpoint}`);
+          console.error(`📋 Metadata: ${metadataJson}`);
+
+          // 使用 Node.js fetch API 发送 multipart/form-data 请求
+          // 根据 bash 脚本：curl -F "metadata=${METADATA_JSON}" -F "file=@${FUNCTION_DIR}/index.ts"
+          try {
+            const formData = new FormData();
+            
+            // metadata 作为字符串传递，与 curl -F "metadata=${METADATA_JSON}" 一致
+            // 在 multipart/form-data 中，字符串值会作为表单字段值发送，不设置特定的 content-type
+            formData.append('metadata', metadataJson);
+            
+            // file 使用 Blob，并指定文件名为 index.ts
+            // 使用 'application/typescript' 作为 content-type，与 api-platform.ts 保持一致
+            const fileBlob = new Blob([file_content], { type: 'application/typescript' });
+            formData.append('file', fileBlob, entrypoint_path);
+
+            // 注意：不要手动设置 Content-Type header，FormData 会自动设置正确的 multipart/form-data boundary
+            const response = await fetch(apiEndpoint, {
+              method: 'POST',
+              headers: {
+                'apiKey': api_key,
+              },
+              body: formData,
+            });
+
+            if (!response.ok) {
+              const errorText = await response.text();
+              console.error(`Debug - Error response body: ${errorText}`);
+              throw new Error(`HTTP ${response.status}: ${errorText}`);
+            }
+
+            const result = await response.json();
+            console.error(`✅ Deploy request sent!`);
+            console.error(`Debug - Success response:`, JSON.stringify(result, null, 2));
+            
+            // 构建返回内容
+            const content: Array<{ type: 'text'; text: string }> = [];
+            
+            // 如果有警告信息，首先添加一个明显的警告提示
+            if (warningMessage) {
+              content.push({
+                type: 'text',
+                text: `⚠️ WARNING: ${warningMessage}\n\n`
+              });
+            }
+            
+            // 添加部署结果
+            const responseData = warningMessage 
+              ? Object.assign({}, typeof result === 'object' && result !== null ? result : {}, { warning: warningMessage })
+              : result;
+            
+            content.push({
+              type: 'text',
+              text: JSON.stringify(responseData, null, 2)
+            });
+            
+            return { content };
+          } catch (fetchError) {
+            // fetch 失败时，直接返回错误，不再尝试 curl
+            const errorMessage = fetchError instanceof Error ? fetchError.message : 'Unknown error occurred';
+            console.error(`Debug - Fetch API failed: ${errorMessage}`);
+            console.error(`Debug - Error stack:`, fetchError instanceof Error ? fetchError.stack : 'No stack trace');
+            console.error(`Debug - Metadata that was sent: ${metadataJson}`);
+            console.error(`Debug - API Endpoint that was called: ${apiEndpoint}`);
+            
+            // 构建返回内容
+            const content: Array<{ type: 'text'; text: string }> = [];
+            
+            // 如果有警告信息，首先添加一个明显的警告提示
+            if (warningMessage) {
+              content.push({
+                type: 'text',
+                text: `⚠️ WARNING: ${warningMessage}\n\n`
+              });
+            }
+            
+            // 添加错误结果
+            const errorResult: any = { 
+              error: errorMessage,
+              metadata: metadata,
+              endpoint: apiEndpoint
+            };
+            if (warningMessage) {
+              errorResult.warning = warningMessage;
+            }
+            
+            content.push({
+              type: 'text',
+              text: JSON.stringify(errorResult, null, 2)
+            });
+            
+            return { content };
+          }
+        } catch (error) {
+          const message = error instanceof Error ? error.message : 'Unknown error occurred';
+          console.error(`Debug - Outer catch error: ${message}`);
+          console.error(`Debug - Error stack:`, error instanceof Error ? error.stack : 'No stack trace');
+          
+          // 构建返回内容
+          const content: Array<{ type: 'text'; text: string }> = [];
+          
+          // 如果有警告信息，首先添加一个明显的警告提示
+          if (warningMessage) {
+            content.push({
+              type: 'text',
+              text: `⚠️ WARNING: ${warningMessage}\n\n`
+            });
+          }
+          
+          // 添加错误结果
+          const errorResult: any = { 
+            error: message 
+          };
+          if (warningMessage) {
+            errorResult.warning = warningMessage;
+          }
+          
+          content.push({
+            type: 'text',
+            text: JSON.stringify(errorResult, null, 2)
+          });
+          
+          return { content };
+        }
+      }
+    }),
+
+    list_edge_functions: tool({
+      description: 'Lists all Edge Functions in a Supabase project on Aliyun. Requires the project\'s PublicConnectUrl as url and serviceRoleKey as api_key obtained from other tools.',
+      parameters: z.object({
+        url: z.string().describe('PublicConnectUrl for the Supabase project (e.g., https://sbp-xxx.supabase.opentrust.net)'),
+        api_key: z.string().describe('serviceRoleKey for authentication'),
+      }),
+      execute: async ({ url, api_key }) => {
+        try {
+          // 构建 API 端点
+          let apiUrl = url;
+          if (!apiUrl.startsWith('http://') && !apiUrl.startsWith('https://')) {
+            apiUrl = "https://" + apiUrl;
+          }
+          const apiEndpoint = `${apiUrl}/api/edge-api/v1/projects/default/functions`;
+
+          // 使用 Node.js fetch API 发送 GET 请求
+          try {
+            const response = await fetch(apiEndpoint, {
+              method: 'GET',
+              headers: {
+                'apiKey': api_key,
+              },
+            });
+
+            if (!response.ok) {
+              const errorText = await response.text();
+              throw new Error(`HTTP ${response.status}: ${errorText}`);
+            }
+
+            const result = await response.json();
+            return {
+              content: [{
+                type: 'text',
+                text: JSON.stringify(result, null, 2)
+              }]
+            };
+          } catch (fetchError) {
+            console.error(`Debug - Fetch API failed: ${fetchError instanceof Error ? fetchError.message : 'Unknown error'}`);
+            console.error('Debug - Falling back to curl command');
+
+            // 如果 fetch 失败，回退到 curl 命令
+            const command = [
+              'curl',
+              '-X GET',
+              escapeShellArg(apiEndpoint),
+              '-H', escapeShellArg(`apiKey: ${api_key}`)
+            ].join(' ');
+
+            console.error(`Debug list_edge_functions - Executing curl command: ${command}`);
+
+            const result = await new Promise((resolve, reject) => {
+              exec(command, (error, stdout, stderr) => {
+                if (error) {
+                  console.error(`Debug - exec error: ${error.message}`);
+                  console.error(`Debug - stderr: ${stderr}`);
+                  reject(new Error(`Command failed: ${stderr || error.message}`));
+                  return;
+                }
+                if (stderr) {
+                  console.warn(`Debug - stderr output: ${stderr}`);
+                }
+                
+                try {
+                  const parsedOutput = JSON.parse(stdout);
+                  resolve(parsedOutput);
+                } catch (parseError) {
+                  const parseErrorMessage = parseError instanceof Error ? parseError.message : String(parseError);
+                  console.error(`Debug - JSON parse error: ${parseErrorMessage}`);
+                  console.error(`Debug - stdout received: ${stdout}`);
+                  reject(new Error(`Failed to parse curl output as JSON: ${stdout}`));
+                }
+              });
+            });
+
+            return {
+              content: [{
+                type: 'text',
+                text: JSON.stringify(result, null, 2)
+              }]
+            };
+          }
+        } catch (error) {
+          const message = error instanceof Error ? error.message : 'Unknown error occurred';
+          console.error(`Debug - Error: ${message}`);
+          return {
+            content: [{ type: 'text', text: `Error: ${message}` }]
+          };
+        }
+      }
+    }),
+
+    invoke_edge_function: tool({
+      description: 'Invokes an Edge Function in a Supabase project on Aliyun. Requires the project\'s PublicConnectUrl as url and anon key for authentication.',
+      parameters: z.object({
+        url: z.string().describe('PublicConnectUrl for the Supabase project (e.g., https://sbp-xxx.supabase.opentrust.net)'),
+        api_key: z.string().describe('Anon key for authentication (not serviceRoleKey)'),
+        function_name: z.string().describe('Function name (slug) to invoke'),
+        data: z.record(z.any()).optional().describe('Optional JSON data to send as request body'),
+      }),
+      execute: async ({ url, api_key, function_name, data }) => {
+        try {
+          // 构建 API 端点
+          let apiUrl = url;
+          if (!apiUrl.startsWith('http://') && !apiUrl.startsWith('https://')) {
+            apiUrl = "https://" + apiUrl;
+          }
+          const apiEndpoint = `${apiUrl}/functions/v1/${encodeURIComponent(function_name)}`;
+
+          // 构建请求体
+          const requestBody = data ? JSON.stringify(data) : undefined;
+
+          // 使用 Node.js fetch API 发送 POST 请求
+          try {
+            const response = await fetch(apiEndpoint, {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${api_key}`,
+                'Content-Type': 'application/json',
+              },
+              body: requestBody,
+            });
+
+            if (!response.ok) {
+              const errorText = await response.text();
+              throw new Error(`HTTP ${response.status}: ${errorText}`);
+            }
+
+            // 尝试解析 JSON 响应，如果不是 JSON 则返回文本
+            const contentType = response.headers.get('content-type');
+            let result;
+            if (contentType && contentType.includes('application/json')) {
+              result = await response.json();
+            } else {
+              result = await response.text();
+            }
+
+            return {
+              content: [{
+                type: 'text',
+                text: JSON.stringify(result, null, 2)
+              }]
+            };
+          } catch (fetchError) {
+            console.error(`Debug - Fetch API failed: ${fetchError instanceof Error ? fetchError.message : 'Unknown error'}`);
+            console.error('Debug - Falling back to curl command');
+
+            // 如果 fetch 失败，回退到 curl 命令
+            const commandParts = [
+              'curl',
+              '-L',
+              '-X POST',
+              escapeShellArg(apiEndpoint),
+              '-H', escapeShellArg(`Authorization: Bearer ${api_key}`),
+              '-H', escapeShellArg('Content-Type: application/json')
+            ];
+
+            if (requestBody) {
+              commandParts.push('-d', escapeShellArg(requestBody));
+            }
+
+            const command = commandParts.join(' ');
+
+            console.error(`Debug invoke_edge_function - Executing curl command: ${command}`);
+
+            const result = await new Promise((resolve, reject) => {
+              exec(command, (error, stdout, stderr) => {
+                if (error) {
+                  console.error(`Debug - exec error: ${error.message}`);
+                  console.error(`Debug - stderr: ${stderr}`);
+                  reject(new Error(`Command failed: ${stderr || error.message}`));
+                  return;
+                }
+                if (stderr) {
+                  console.warn(`Debug - stderr output: ${stderr}`);
+                }
+                
+                try {
+                  // 尝试解析 JSON，如果失败则返回原始文本
+                  const parsedOutput = JSON.parse(stdout);
+                  resolve(parsedOutput);
+                } catch (parseError) {
+                  // 如果不是 JSON，直接返回文本
+                  resolve(stdout);
+                }
+              });
+            });
+
+            return {
+              content: [{
+                type: 'text',
+                text: typeof result === 'string' ? result : JSON.stringify(result, null, 2)
+              }]
+            };
+          }
+        } catch (error) {
+          const message = error instanceof Error ? error.message : 'Unknown error occurred';
+          console.error(`Debug - Error: ${message}`);
+          return {
+            content: [{ type: 'text', text: `Error: ${message}` }]
+          };
+        }
+      }
+    }),
+
+    delete_edge_function: tool({
+      description: 'Deletes an Edge Function from a Supabase project on Aliyun. Requires the project\'s PublicConnectUrl as url and serviceRoleKey as api_key obtained from other tools.',
+      parameters: z.object({
+        url: z.string().describe('PublicConnectUrl for the Supabase project (e.g., https://sbp-xxx.supabase.opentrust.net)'),
+        api_key: z.string().describe('serviceRoleKey for authentication'),
+        function_name: z.string().describe('Function name (slug) to delete'),
+      }),
+      execute: async ({ url, api_key, function_name }) => {
+        try {
+          // 构建 API 端点
+          let apiUrl = url;
+          if (!apiUrl.startsWith('http://') && !apiUrl.startsWith('https://')) {
+            apiUrl = "https://" + apiUrl;
+          }
+          const apiEndpoint = `${apiUrl}/api/edge-api/v1/projects/default/functions/${encodeURIComponent(function_name)}`;
+
+          // 使用 Node.js fetch API 发送 DELETE 请求
+          try {
+            const response = await fetch(apiEndpoint, {
+              method: 'DELETE',
+              headers: {
+                'apiKey': api_key,
+              },
+            });
+
+            if (!response.ok) {
+              const errorText = await response.text();
+              throw new Error(`HTTP ${response.status}: ${errorText}`);
+            }
+
+            // DELETE 请求可能返回空响应或 JSON
+            const contentType = response.headers.get('content-type');
+            let result;
+            if (contentType && contentType.includes('application/json')) {
+              result = await response.json();
+            } else {
+              // 如果响应为空，返回成功消息
+              const text = await response.text();
+              result = text || { message: 'Function deleted successfully' };
+            }
+
+            return {
+              content: [{
+                type: 'text',
+                text: JSON.stringify(result, null, 2)
+              }]
+            };
+          } catch (fetchError) {
+            console.error(`Debug - Fetch API failed: ${fetchError instanceof Error ? fetchError.message : 'Unknown error'}`);
+            console.error('Debug - Falling back to curl command');
+
+            // 如果 fetch 失败，回退到 curl 命令
+            const command = [
+              'curl',
+              '-X DELETE',
+              escapeShellArg(apiEndpoint),
+              '-H', escapeShellArg(`apiKey: ${api_key}`)
+            ].join(' ');
+
+            console.error(`Debug delete_edge_function - Executing curl command: ${command}`);
+
+            const result = await new Promise((resolve, reject) => {
+              exec(command, (error, stdout, stderr) => {
+                if (error) {
+                  console.error(`Debug - exec error: ${error.message}`);
+                  console.error(`Debug - stderr: ${stderr}`);
+                  reject(new Error(`Command failed: ${stderr || error.message}`));
+                  return;
+                }
+                if (stderr) {
+                  console.warn(`Debug - stderr output: ${stderr}`);
+                }
+                
+                try {
+                  // 尝试解析 JSON，如果失败则返回成功消息
+                  if (stdout.trim()) {
+                    const parsedOutput = JSON.parse(stdout);
+                    resolve(parsedOutput);
+                  } else {
+                    resolve({ message: 'Function deleted successfully' });
+                  }
+                } catch (parseError) {
+                  // 如果不是 JSON，返回原始文本或成功消息
+                  resolve(stdout.trim() || { message: 'Function deleted successfully' });
+                }
+              });
+            });
+
+            return {
+              content: [{
+                type: 'text',
+                text: typeof result === 'string' ? result : JSON.stringify(result, null, 2)
+              }]
+            };
+          }
+        } catch (error) {
+          const message = error instanceof Error ? error.message : 'Unknown error occurred';
+          console.error(`Debug - Error: ${message}`);
+          return {
+            content: [{ type: 'text', text: `Error: ${message}` }]
+          };
+        }
+      }
+    }),
+
   };
 }
