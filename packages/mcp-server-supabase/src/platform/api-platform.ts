@@ -36,6 +36,7 @@ import {
   type GetLogsOptions,
   type ResetBranchOptions,
   type StorageConfig,
+  type StorageBucket,
   type SupabasePlatform,
   type ListAliyunSupabaseProjectsResult,
   type GetAliyunSupabaseProjectResult,
@@ -1138,6 +1139,700 @@ export function createSupabaseApiPlatform(
       } catch (error: any) {
         console.error('Failed to list tables via URL:', error.message);
         throw new Error(`Failed to list tables: ${error.message}`);
+      }
+    },
+
+    async listAuthUsersViaUrl(options: {
+      url: string;
+      api_key: string;
+      page?: number;
+      per_page?: number;
+    }): Promise<{
+      users: Array<{
+        id: string;
+        aud: string;
+        role: string;
+        email?: string;
+        email_confirmed_at?: string;
+        phone?: string;
+        phone_confirmed_at?: string;
+        confirmed_at?: string;
+        last_sign_in_at?: string;
+        app_metadata?: Record<string, any>;
+        user_metadata?: Record<string, any>;
+        identities?: Array<{
+          id: string;
+          user_id: string;
+          identity_data: Record<string, any>;
+          provider: string;
+          last_sign_in_at?: string;
+          created_at?: string;
+          updated_at?: string;
+        }>;
+        created_at: string;
+        updated_at: string;
+      }>;
+      total?: number;
+    }> {
+      const { url, api_key, page, per_page } = options;
+      
+      // 确保 URL 有正确的协议
+      let requestUrl = url;
+      if (!requestUrl.startsWith('http://') && !requestUrl.startsWith('https://')) {
+        requestUrl = "https://" + requestUrl;
+      }
+      requestUrl = requestUrl + "/auth/v1/admin/users";
+      
+      // 构建查询参数
+      const queryParams = new URLSearchParams();
+      if (page !== undefined) {
+        queryParams.append('page', page.toString());
+      }
+      if (per_page !== undefined) {
+        queryParams.append('per_page', per_page.toString());
+      }
+      
+      if (queryParams.toString()) {
+        requestUrl = requestUrl + "?" + queryParams.toString();
+      }
+      
+      try {
+        const response = await fetch(requestUrl, {
+          method: 'GET',
+          headers: {
+            'apikey': api_key,
+            'Authorization': `Bearer ${api_key}`,
+            'Content-Type': 'application/json',
+          },
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(`HTTP error! status: ${response.status}, message: ${errorText}`);
+        }
+
+        const result = await response.json();
+        
+        // Supabase Admin API 返回的格式可能是数组或对象
+        if (Array.isArray(result)) {
+          return {
+            users: result,
+            total: result.length,
+          };
+        } else if (result.users) {
+          return result;
+        } else {
+          // 如果返回的是单个用户对象，包装成数组
+          return {
+            users: [result],
+            total: 1,
+          };
+        }
+      } catch (error: any) {
+        console.error('Failed to list auth users via URL:', error.message);
+        throw new Error(`Failed to list auth users: ${error.message}`);
+      }
+    },
+
+    async getAuthUserViaUrl(options: {
+      url: string;
+      api_key: string;
+      user_id: string;
+    }): Promise<{
+      id: string;
+      aud: string;
+      role: string;
+      email?: string;
+      email_confirmed_at?: string;
+      phone?: string;
+      phone_confirmed_at?: string;
+      confirmed_at?: string;
+      last_sign_in_at?: string;
+      app_metadata?: Record<string, any>;
+      user_metadata?: Record<string, any>;
+      identities?: Array<{
+        id: string;
+        user_id: string;
+        identity_data: Record<string, any>;
+        provider: string;
+        last_sign_in_at?: string;
+        created_at?: string;
+        updated_at?: string;
+      }>;
+      created_at: string;
+      updated_at: string;
+    }> {
+      const { url, api_key, user_id } = options;
+      
+      // 确保 URL 有正确的协议
+      let requestUrl = url;
+      if (!requestUrl.startsWith('http://') && !requestUrl.startsWith('https://')) {
+        requestUrl = "https://" + requestUrl;
+      }
+      requestUrl = `${requestUrl}/auth/v1/admin/users/${encodeURIComponent(user_id)}`;
+      
+      try {
+        const response = await fetch(requestUrl, {
+          method: 'GET',
+          headers: {
+            'apikey': api_key,
+            'Authorization': `Bearer ${api_key}`,
+            'Content-Type': 'application/json',
+          },
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(`HTTP error! status: ${response.status}, message: ${errorText}`);
+        }
+
+        const result = await response.json();
+        return result;
+      } catch (error: any) {
+        console.error('Failed to get auth user via URL:', error.message);
+        throw new Error(`Failed to get auth user: ${error.message}`);
+      }
+    },
+
+    async createAuthUserViaUrl(options: {
+      url: string;
+      api_key: string;
+      email?: string;
+      phone?: string;
+      password?: string;
+      email_confirm?: boolean;
+      phone_confirm?: boolean;
+      user_metadata?: Record<string, any>;
+      app_metadata?: Record<string, any>;
+      ban_duration?: string;
+    }): Promise<{
+      id: string;
+      aud: string;
+      role: string;
+      email?: string;
+      email_confirmed_at?: string;
+      phone?: string;
+      phone_confirmed_at?: string;
+      confirmed_at?: string;
+      last_sign_in_at?: string;
+      app_metadata?: Record<string, any>;
+      user_metadata?: Record<string, any>;
+      identities?: Array<{
+        id: string;
+        user_id: string;
+        identity_data: Record<string, any>;
+        provider: string;
+        last_sign_in_at?: string;
+        created_at?: string;
+        updated_at?: string;
+      }>;
+      created_at: string;
+      updated_at: string;
+    }> {
+      const { url, api_key, email, phone, password, email_confirm, phone_confirm, user_metadata, app_metadata, ban_duration } = options;
+      
+      // 确保 URL 有正确的协议
+      let requestUrl = url;
+      if (!requestUrl.startsWith('http://') && !requestUrl.startsWith('https://')) {
+        requestUrl = "https://" + requestUrl;
+      }
+      requestUrl = `${requestUrl}/auth/v1/admin/users`;
+      
+      // 构建请求体
+      const requestBody: Record<string, any> = {};
+      if (email !== undefined) requestBody.email = email;
+      if (phone !== undefined) requestBody.phone = phone;
+      if (password !== undefined) requestBody.password = password;
+      if (email_confirm !== undefined) requestBody.email_confirm = email_confirm;
+      if (phone_confirm !== undefined) requestBody.phone_confirm = phone_confirm;
+      if (user_metadata !== undefined) requestBody.user_metadata = user_metadata;
+      if (app_metadata !== undefined) requestBody.app_metadata = app_metadata;
+      if (ban_duration !== undefined) requestBody.ban_duration = ban_duration;
+      
+      try {
+        const response = await fetch(requestUrl, {
+          method: 'POST',
+          headers: {
+            'apikey': api_key,
+            'Authorization': `Bearer ${api_key}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(requestBody),
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(`HTTP error! status: ${response.status}, message: ${errorText}`);
+        }
+
+        const result = await response.json();
+        return result;
+      } catch (error: any) {
+        console.error('Failed to create auth user via URL:', error.message);
+        throw new Error(`Failed to create auth user: ${error.message}`);
+      }
+    },
+
+    async deleteAuthUserViaUrl(options: {
+      url: string;
+      api_key: string;
+      user_id: string;
+    }): Promise<void> {
+      const { url, api_key, user_id } = options;
+      
+      // 确保 URL 有正确的协议
+      let requestUrl = url;
+      if (!requestUrl.startsWith('http://') && !requestUrl.startsWith('https://')) {
+        requestUrl = "https://" + requestUrl;
+      }
+      requestUrl = `${requestUrl}/auth/v1/admin/users/${encodeURIComponent(user_id)}`;
+      
+      try {
+        const response = await fetch(requestUrl, {
+          method: 'DELETE',
+          headers: {
+            'apikey': api_key,
+            'Authorization': `Bearer ${api_key}`,
+            'Content-Type': 'application/json',
+          },
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(`HTTP error! status: ${response.status}, message: ${errorText}`);
+        }
+      } catch (error: any) {
+        console.error('Failed to delete auth user via URL:', error.message);
+        throw new Error(`Failed to delete auth user: ${error.message}`);
+      }
+    },
+
+    async updateAuthUserViaUrl(options: {
+      url: string;
+      api_key: string;
+      user_id: string;
+      email?: string;
+      phone?: string;
+      password?: string;
+      email_confirm?: boolean;
+      phone_confirm?: boolean;
+      user_metadata?: Record<string, any>;
+      app_metadata?: Record<string, any>;
+      ban_duration?: string;
+    }): Promise<{
+      id: string;
+      aud: string;
+      role: string;
+      email?: string;
+      email_confirmed_at?: string;
+      phone?: string;
+      phone_confirmed_at?: string;
+      confirmed_at?: string;
+      last_sign_in_at?: string;
+      app_metadata?: Record<string, any>;
+      user_metadata?: Record<string, any>;
+      identities?: Array<{
+        id: string;
+        user_id: string;
+        identity_data: Record<string, any>;
+        provider: string;
+        last_sign_in_at?: string;
+        created_at?: string;
+        updated_at?: string;
+      }>;
+      created_at: string;
+      updated_at: string;
+    }> {
+      const { url, api_key, user_id, email, phone, password, email_confirm, phone_confirm, user_metadata, app_metadata, ban_duration } = options;
+      
+      // 确保 URL 有正确的协议
+      let requestUrl = url;
+      if (!requestUrl.startsWith('http://') && !requestUrl.startsWith('https://')) {
+        requestUrl = "https://" + requestUrl;
+      }
+      requestUrl = `${requestUrl}/auth/v1/admin/users/${encodeURIComponent(user_id)}`;
+      
+      // 构建请求体
+      const requestBody: Record<string, any> = {};
+      if (email !== undefined) requestBody.email = email;
+      if (phone !== undefined) requestBody.phone = phone;
+      if (password !== undefined) requestBody.password = password;
+      if (email_confirm !== undefined) requestBody.email_confirm = email_confirm;
+      if (phone_confirm !== undefined) requestBody.phone_confirm = phone_confirm;
+      if (user_metadata !== undefined) requestBody.user_metadata = user_metadata;
+      if (app_metadata !== undefined) requestBody.app_metadata = app_metadata;
+      if (ban_duration !== undefined) requestBody.ban_duration = ban_duration;
+      
+      try {
+        const response = await fetch(requestUrl, {
+          method: 'PUT',
+          headers: {
+            'apikey': api_key,
+            'Authorization': `Bearer ${api_key}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(requestBody),
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(`HTTP error! status: ${response.status}, message: ${errorText}`);
+        }
+
+        const result = await response.json();
+        return result;
+      } catch (error: any) {
+        console.error('Failed to update auth user via URL:', error.message);
+        throw new Error(`Failed to update auth user: ${error.message}`);
+      }
+    },
+
+    // Storage operations via URL and API key
+    async listStorageBucketsViaUrl(options: {
+      url: string;
+      api_key: string;
+    }): Promise<StorageBucket[]> {
+      const { url, api_key } = options;
+      
+      // 确保 URL 有正确的协议
+      let requestUrl = url;
+      if (!requestUrl.startsWith('http://') && !requestUrl.startsWith('https://')) {
+        requestUrl = "https://" + requestUrl;
+      }
+      requestUrl = `${requestUrl}/storage/v1/bucket`;
+      
+      try {
+        const response = await fetch(requestUrl, {
+          method: 'GET',
+          headers: {
+            'apikey': api_key,
+            'Authorization': `Bearer ${api_key}`,
+            'Content-Type': 'application/json',
+          },
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(`HTTP error! status: ${response.status}, message: ${errorText}`);
+        }
+
+        const result = await response.json();
+        return result;
+      } catch (error: any) {
+        console.error('Failed to list storage buckets via URL:', error.message);
+        throw new Error(`Failed to list storage buckets: ${error.message}`);
+      }
+    },
+
+    async createStorageBucketViaUrl(options: {
+      url: string;
+      api_key: string;
+      name: string;
+      public?: boolean;
+      file_size_limit?: number;
+      allowed_mime_types?: string[];
+    }): Promise<StorageBucket> {
+      const { url, api_key, name, public: isPublic, file_size_limit, allowed_mime_types } = options;
+      
+      // 确保 URL 有正确的协议
+      let requestUrl = url;
+      if (!requestUrl.startsWith('http://') && !requestUrl.startsWith('https://')) {
+        requestUrl = "https://" + requestUrl;
+      }
+      requestUrl = `${requestUrl}/storage/v1/bucket`;
+      
+      // 构建请求体
+      const requestBody: Record<string, any> = {
+        name,
+        id: name,
+      };
+      if (isPublic !== undefined) requestBody.public = isPublic;
+      if (file_size_limit !== undefined) requestBody.file_size_limit = file_size_limit;
+      if (allowed_mime_types !== undefined) requestBody.allowed_mime_types = allowed_mime_types;
+      
+      try {
+        const response = await fetch(requestUrl, {
+          method: 'POST',
+          headers: {
+            'apikey': api_key,
+            'Authorization': `Bearer ${api_key}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(requestBody),
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(`HTTP error! status: ${response.status}, message: ${errorText}`);
+        }
+
+        const result = await response.json();
+        return result;
+      } catch (error: any) {
+        console.error('Failed to create storage bucket via URL:', error.message);
+        throw new Error(`Failed to create storage bucket: ${error.message}`);
+      }
+    },
+
+    async deleteStorageBucketViaUrl(options: {
+      url: string;
+      api_key: string;
+      bucket_name: string;
+    }): Promise<void> {
+      const { url, api_key, bucket_name } = options;
+      
+      // 确保 URL 有正确的协议
+      let requestUrl = url;
+      if (!requestUrl.startsWith('http://') && !requestUrl.startsWith('https://')) {
+        requestUrl = "https://" + requestUrl;
+      }
+      requestUrl = `${requestUrl}/storage/v1/bucket/${encodeURIComponent(bucket_name)}`;
+      
+      try {
+        const response = await fetch(requestUrl, {
+          method: 'DELETE',
+          headers: {
+            'apikey': api_key,
+            'Authorization': `Bearer ${api_key}`,
+            'Content-Type': 'application/json',
+          },
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(`HTTP error! status: ${response.status}, message: ${errorText}`);
+        }
+      } catch (error: any) {
+        console.error('Failed to delete storage bucket via URL:', error.message);
+        throw new Error(`Failed to delete storage bucket: ${error.message}`);
+      }
+    },
+
+    async listStorageFilesViaUrl(options: {
+      url: string;
+      api_key: string;
+      bucket_name: string;
+      path?: string;
+      limit?: number;
+      offset?: number;
+      sort_by?: {
+        column?: string;
+        order?: 'asc' | 'desc';
+      };
+    }): Promise<Array<{
+      name: string;
+      id: string;
+      updated_at: string;
+      created_at: string;
+      last_accessed_at: string;
+      metadata?: Record<string, any>;
+    }>> {
+      const { url, api_key, bucket_name, path, limit, offset, sort_by } = options;
+      
+      // 确保 URL 有正确的协议
+      let requestUrl = url;
+      if (!requestUrl.startsWith('http://') && !requestUrl.startsWith('https://')) {
+        requestUrl = "https://" + requestUrl;
+      }
+      requestUrl = `${requestUrl}/storage/v1/object/list/${encodeURIComponent(bucket_name)}`;
+      
+      // 构建查询参数
+      const queryParams = new URLSearchParams();
+      if (path !== undefined) queryParams.append('prefix', path);
+      if (limit !== undefined) queryParams.append('limit', limit.toString());
+      if (offset !== undefined) queryParams.append('offset', offset.toString());
+      if (sort_by?.column) queryParams.append('sortBy', sort_by.column);
+      if (sort_by?.order) queryParams.append('order', sort_by.order);
+      
+      if (queryParams.toString()) {
+        requestUrl = requestUrl + "?" + queryParams.toString();
+      }
+      
+      try {
+        const response = await fetch(requestUrl, {
+          method: 'GET',
+          headers: {
+            'apikey': api_key,
+            'Authorization': `Bearer ${api_key}`,
+            'Content-Type': 'application/json',
+          },
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(`HTTP error! status: ${response.status}, message: ${errorText}`);
+        }
+
+        const result = await response.json();
+        return result;
+      } catch (error: any) {
+        console.error('Failed to list storage files via URL:', error.message);
+        throw new Error(`Failed to list storage files: ${error.message}`);
+      }
+    },
+
+    async uploadStorageFileViaUrl(options: {
+      url: string;
+      api_key: string;
+      bucket_name: string;
+      file_path: string;
+      file_content: string | ArrayBuffer | Blob;
+      content_type?: string;
+      upsert?: boolean;
+    }): Promise<{
+      path: string;
+      id: string;
+      fullPath: string;
+    }> {
+      const { url, api_key, bucket_name, file_path, file_content, content_type, upsert } = options;
+      
+      // 确保 URL 有正确的协议
+      let requestUrl = url;
+      if (!requestUrl.startsWith('http://') && !requestUrl.startsWith('https://')) {
+        requestUrl = "https://" + requestUrl;
+      }
+      requestUrl = `${requestUrl}/storage/v1/object/${encodeURIComponent(bucket_name)}/${encodeURIComponent(file_path)}`;
+      
+      // 构建查询参数
+      if (upsert) {
+        requestUrl = requestUrl + "?upsert=true";
+      }
+      
+      // 处理文件内容
+      let body: Blob | ArrayBuffer | string;
+      if (typeof file_content === 'string') {
+        body = file_content;
+      } else {
+        body = file_content;
+      }
+      
+      const headers: Record<string, string> = {
+        'apikey': api_key,
+        'Authorization': `Bearer ${api_key}`,
+      };
+      
+      if (content_type) {
+        headers['Content-Type'] = content_type;
+      } else if (typeof file_content === 'string') {
+        headers['Content-Type'] = 'text/plain';
+      }
+      
+      try {
+        const response = await fetch(requestUrl, {
+          method: 'POST',
+          headers,
+          body: body as BodyInit,
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(`HTTP error! status: ${response.status}, message: ${errorText}`);
+        }
+
+        const result = await response.json();
+        return result;
+      } catch (error: any) {
+        console.error('Failed to upload storage file via URL:', error.message);
+        throw new Error(`Failed to upload storage file: ${error.message}`);
+      }
+    },
+
+    async downloadStorageFileViaUrl(options: {
+      url: string;
+      api_key: string;
+      bucket_name: string;
+      file_path: string;
+    }): Promise<Blob> {
+      const { url, api_key, bucket_name, file_path } = options;
+      
+      // 确保 URL 有正确的协议
+      let requestUrl = url;
+      if (!requestUrl.startsWith('http://') && !requestUrl.startsWith('https://')) {
+        requestUrl = "https://" + requestUrl;
+      }
+      requestUrl = `${requestUrl}/storage/v1/object/${encodeURIComponent(bucket_name)}/${encodeURIComponent(file_path)}`;
+      
+      try {
+        const response = await fetch(requestUrl, {
+          method: 'GET',
+          headers: {
+            'apikey': api_key,
+            'Authorization': `Bearer ${api_key}`,
+          },
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(`HTTP error! status: ${response.status}, message: ${errorText}`);
+        }
+
+        const blob = await response.blob();
+        return blob;
+      } catch (error: any) {
+        console.error('Failed to download storage file via URL:', error.message);
+        throw new Error(`Failed to download storage file: ${error.message}`);
+      }
+    },
+
+    async deleteStorageFileViaUrl(options: {
+      url: string;
+      api_key: string;
+      bucket_name: string;
+      file_path: string | string[];
+    }): Promise<Array<{
+      name: string;
+      message?: string;
+    }>> {
+      const { url, api_key, bucket_name, file_path } = options;
+      
+      // 确保 URL 有正确的协议
+      let requestUrl = url;
+      if (!requestUrl.startsWith('http://') && !requestUrl.startsWith('https://')) {
+        requestUrl = "https://" + requestUrl;
+      }
+      
+      // 处理单个文件或多个文件
+      const filePaths = Array.isArray(file_path) ? file_path : [file_path];
+      
+      try {
+        const results = await Promise.all(
+          filePaths.map(async (path) => {
+            const deleteUrl = `${requestUrl}/storage/v1/object/${encodeURIComponent(bucket_name)}/${encodeURIComponent(path)}`;
+            
+            try {
+              const response = await fetch(deleteUrl, {
+                method: 'DELETE',
+                headers: {
+                  'apikey': api_key,
+                  'Authorization': `Bearer ${api_key}`,
+                  'Content-Type': 'application/json',
+                },
+              });
+
+              if (!response.ok) {
+                const errorText = await response.text();
+                return {
+                  name: path,
+                  message: `Failed to delete: ${errorText}`,
+                };
+              }
+
+              return {
+                name: path,
+              };
+            } catch (error: any) {
+              return {
+                name: path,
+                message: `Error: ${error.message}`,
+              };
+            }
+          })
+        );
+        
+        return results;
+      } catch (error: any) {
+        console.error('Failed to delete storage files via URL:', error.message);
+        throw new Error(`Failed to delete storage files: ${error.message}`);
       }
     },
 

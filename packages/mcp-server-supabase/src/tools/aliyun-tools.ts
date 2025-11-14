@@ -1288,5 +1288,788 @@ export async function getAliyunTools({ platform, readOnly }: AliyunToolsOptions)
       }
     }),
 
+    list_auth_users: tool({
+      description: 'Lists all authentication users in a Supabase project on Aliyun. Requires the project\'s PublicConnectUrl as url and serviceRoleKey as api_key obtained from other tools. Uses Supabase Admin API to retrieve user information.',
+      parameters: z.object({
+        url: z.string().describe('PublicConnectUrl for the Supabase project (e.g., https://sbp-xxx.supabase.opentrust.net)'),
+        api_key: z.string().describe('serviceRoleKey for authentication (required for Admin API access)'),
+        page: z.number().optional().describe('Page number for pagination (default: 1)'),
+        per_page: z.number().optional().describe('Number of users per page (default: 50, max: 1000)'),
+      }),
+      execute: async ({ url, api_key, page, per_page }) => {
+        try {
+          // 使用平台接口列出用户
+          try {
+            const result = await platform.listAuthUsersViaUrl({ url, api_key, page, per_page });
+            return {
+              content: [{
+                type: 'text',
+                text: JSON.stringify(result, null, 2)
+              }]
+            };
+          } catch (tsError) {
+            console.error(`Debug - TypeScript interface failed: ${tsError instanceof Error ? tsError.message : 'Unknown error'}`);
+            console.error('Debug - Falling back to curl command');
+            
+            // 如果 TypeScript 接口失败，回退到 curl 命令
+            let apiUrl = url;
+            if (!apiUrl.startsWith('http://') && !apiUrl.startsWith('https://')) {
+              apiUrl = "https://" + apiUrl;
+            }
+            let apiEndpoint = `${apiUrl}/auth/v1/admin/users`;
+            
+            // 构建查询参数
+            const queryParams: string[] = [];
+            if (page !== undefined) {
+              queryParams.push(`page=${encodeURIComponent(page)}`);
+            }
+            if (per_page !== undefined) {
+              queryParams.push(`per_page=${encodeURIComponent(per_page)}`);
+            }
+            if (queryParams.length > 0) {
+              apiEndpoint = apiEndpoint + "?" + queryParams.join("&");
+            }
+
+            const command = [
+              'curl',
+              '-X GET',
+              escapeShellArg(apiEndpoint),
+              '-H', escapeShellArg(`apikey: ${api_key}`),
+              '-H', escapeShellArg(`Authorization: Bearer ${api_key}`),
+              '-H', escapeShellArg('Content-Type: application/json')
+            ].join(' ');
+
+            console.error(`Debug list_auth_users - Executing curl command: ${command}`);
+
+            const result = await new Promise((resolve, reject) => {
+              exec(command, (error, stdout, stderr) => {
+                if (error) {
+                  console.error(`Debug - exec error: ${error.message}`);
+                  console.error(`Debug - stderr: ${stderr}`);
+                  reject(new Error(`Command failed: ${stderr || error.message}`));
+                  return;
+                }
+                if (stderr) {
+                  console.warn(`Debug - stderr output: ${stderr}`);
+                }
+                
+                try {
+                  const parsedOutput = JSON.parse(stdout);
+                  // 处理不同的响应格式
+                  if (Array.isArray(parsedOutput)) {
+                    resolve({
+                      users: parsedOutput,
+                      total: parsedOutput.length
+                    });
+                  } else if (parsedOutput.users) {
+                    resolve(parsedOutput);
+                  } else {
+                    resolve({
+                      users: [parsedOutput],
+                      total: 1
+                    });
+                  }
+                } catch (parseError) {
+                  const parseErrorMessage = parseError instanceof Error ? parseError.message : String(parseError);
+                  console.error(`Debug - JSON parse error: ${parseErrorMessage}`);
+                  console.error(`Debug - stdout received: ${stdout}`);
+                  reject(new Error(`Failed to parse curl output as JSON: ${stdout}`));
+                }
+              });
+            });
+
+            return {
+              content: [{
+                type: 'text',
+                text: JSON.stringify(result, null, 2)
+              }]
+            };
+          }
+        } catch (error) {
+          const message = error instanceof Error ? error.message : 'Unknown error occurred';
+          console.error(`Debug - Error: ${message}`);
+          return {
+            content: [{ type: 'text', text: `Error: ${message}` }]
+          };
+        }
+      }
+    }),
+
+    get_auth_user: tool({
+      description: 'Retrieves details for a specific user in a Supabase project on Aliyun. Requires the project\'s PublicConnectUrl as url and serviceRoleKey as api_key obtained from other tools. Uses Supabase Admin API to retrieve user information.',
+      parameters: z.object({
+        url: z.string().describe('PublicConnectUrl for the Supabase project (e.g., https://sbp-xxx.supabase.opentrust.net)'),
+        api_key: z.string().describe('serviceRoleKey for authentication (required for Admin API access)'),
+        user_id: z.string().describe('The ID of the user to retrieve'),
+      }),
+      execute: async ({ url, api_key, user_id }) => {
+        try {
+          // 使用平台接口获取用户
+          try {
+            const result = await platform.getAuthUserViaUrl({ url, api_key, user_id });
+            return {
+              content: [{
+                type: 'text',
+                text: JSON.stringify(result, null, 2)
+              }]
+            };
+          } catch (tsError) {
+            console.error(`Debug - TypeScript interface failed: ${tsError instanceof Error ? tsError.message : 'Unknown error'}`);
+            console.error('Debug - Falling back to curl command');
+            
+            // 如果 TypeScript 接口失败，回退到 curl 命令
+            let apiUrl = url;
+            if (!apiUrl.startsWith('http://') && !apiUrl.startsWith('https://')) {
+              apiUrl = "https://" + apiUrl;
+            }
+            const apiEndpoint = `${apiUrl}/auth/v1/admin/users/${encodeURIComponent(user_id)}`;
+
+            const command = [
+              'curl',
+              '-X GET',
+              escapeShellArg(apiEndpoint),
+              '-H', escapeShellArg(`apikey: ${api_key}`),
+              '-H', escapeShellArg(`Authorization: Bearer ${api_key}`),
+              '-H', escapeShellArg('Content-Type: application/json')
+            ].join(' ');
+
+            console.error(`Debug get_auth_user - Executing curl command: ${command}`);
+
+            const result = await new Promise((resolve, reject) => {
+              exec(command, (error, stdout, stderr) => {
+                if (error) {
+                  console.error(`Debug - exec error: ${error.message}`);
+                  console.error(`Debug - stderr: ${stderr}`);
+                  reject(new Error(`Command failed: ${stderr || error.message}`));
+                  return;
+                }
+                if (stderr) {
+                  console.warn(`Debug - stderr output: ${stderr}`);
+                }
+                
+                try {
+                  const parsedOutput = JSON.parse(stdout);
+                  resolve(parsedOutput);
+                } catch (parseError) {
+                  const parseErrorMessage = parseError instanceof Error ? parseError.message : String(parseError);
+                  console.error(`Debug - JSON parse error: ${parseErrorMessage}`);
+                  console.error(`Debug - stdout received: ${stdout}`);
+                  reject(new Error(`Failed to parse curl output as JSON: ${stdout}`));
+                }
+              });
+            });
+
+            return {
+              content: [{
+                type: 'text',
+                text: JSON.stringify(result, null, 2)
+              }]
+            };
+          }
+        } catch (error) {
+          const message = error instanceof Error ? error.message : 'Unknown error occurred';
+          console.error(`Debug - Error: ${message}`);
+          return {
+            content: [{ type: 'text', text: `Error: ${message}` }]
+          };
+        }
+      }
+    }),
+
+    create_auth_user: tool({
+      description: 'Creates a new user using Supabase Admin API in a Supabase project on Aliyun. Requires the project\'s PublicConnectUrl as url and serviceRoleKey as api_key obtained from other tools.',
+      parameters: z.object({
+        url: z.string().describe('PublicConnectUrl for the Supabase project (e.g., https://sbp-xxx.supabase.opentrust.net)'),
+        api_key: z.string().describe('serviceRoleKey for authentication (required for Admin API access)'),
+        email: z.string().optional().describe('Email address for the user'),
+        phone: z.string().optional().describe('Phone number for the user'),
+        password: z.string().optional().describe('Password for the user'),
+        email_confirm: z.boolean().optional().describe('Whether to confirm the email address (default: false)'),
+        phone_confirm: z.boolean().optional().describe('Whether to confirm the phone number (default: false)'),
+        user_metadata: z.record(z.any()).optional().describe('Custom user metadata'),
+        app_metadata: z.record(z.any()).optional().describe('Custom app metadata'),
+        ban_duration: z.string().optional().describe('Ban duration (e.g., "24h", "1w")'),
+      }),
+      execute: async ({ url, api_key, email, phone, password, email_confirm, phone_confirm, user_metadata, app_metadata, ban_duration }) => {
+        try {
+          // 使用平台接口创建用户
+          try {
+            const result = await platform.createAuthUserViaUrl({
+              url,
+              api_key,
+              email,
+              phone,
+              password,
+              email_confirm,
+              phone_confirm,
+              user_metadata,
+              app_metadata,
+              ban_duration,
+            });
+            return {
+              content: [{
+                type: 'text',
+                text: JSON.stringify(result, null, 2)
+              }]
+            };
+          } catch (tsError) {
+            console.error(`Debug - TypeScript interface failed: ${tsError instanceof Error ? tsError.message : 'Unknown error'}`);
+            console.error('Debug - Falling back to curl command');
+            
+            // 如果 TypeScript 接口失败，回退到 curl 命令
+            let apiUrl = url;
+            if (!apiUrl.startsWith('http://') && !apiUrl.startsWith('https://')) {
+              apiUrl = "https://" + apiUrl;
+            }
+            const apiEndpoint = `${apiUrl}/auth/v1/admin/users`;
+
+            // 构建请求体
+            const requestBody: Record<string, any> = {};
+            if (email !== undefined) requestBody.email = email;
+            if (phone !== undefined) requestBody.phone = phone;
+            if (password !== undefined) requestBody.password = password;
+            if (email_confirm !== undefined) requestBody.email_confirm = email_confirm;
+            if (phone_confirm !== undefined) requestBody.phone_confirm = phone_confirm;
+            if (user_metadata !== undefined) requestBody.user_metadata = user_metadata;
+            if (app_metadata !== undefined) requestBody.app_metadata = app_metadata;
+            if (ban_duration !== undefined) requestBody.ban_duration = ban_duration;
+
+            const jsonData = JSON.stringify(requestBody);
+
+            const command = [
+              'curl',
+              '-X POST',
+              escapeShellArg(apiEndpoint),
+              '-H', escapeShellArg(`apikey: ${api_key}`),
+              '-H', escapeShellArg(`Authorization: Bearer ${api_key}`),
+              '-H', escapeShellArg('Content-Type: application/json'),
+              '-d', escapeShellArg(jsonData)
+            ].join(' ');
+
+            console.error(`Debug create_auth_user - Executing curl command: ${command}`);
+
+            const result = await new Promise((resolve, reject) => {
+              exec(command, (error, stdout, stderr) => {
+                if (error) {
+                  console.error(`Debug - exec error: ${error.message}`);
+                  console.error(`Debug - stderr: ${stderr}`);
+                  reject(new Error(`Command failed: ${stderr || error.message}`));
+                  return;
+                }
+                if (stderr) {
+                  console.warn(`Debug - stderr output: ${stderr}`);
+                }
+                
+                try {
+                  const parsedOutput = JSON.parse(stdout);
+                  resolve(parsedOutput);
+                } catch (parseError) {
+                  const parseErrorMessage = parseError instanceof Error ? parseError.message : String(parseError);
+                  console.error(`Debug - JSON parse error: ${parseErrorMessage}`);
+                  console.error(`Debug - stdout received: ${stdout}`);
+                  reject(new Error(`Failed to parse curl output as JSON: ${stdout}`));
+                }
+              });
+            });
+
+            return {
+              content: [{
+                type: 'text',
+                text: JSON.stringify(result, null, 2)
+              }]
+            };
+          }
+        } catch (error) {
+          const message = error instanceof Error ? error.message : 'Unknown error occurred';
+          console.error(`Debug - Error: ${message}`);
+          return {
+            content: [{ type: 'text', text: `Error: ${message}` }]
+          };
+        }
+      }
+    }),
+
+    delete_auth_user: tool({
+      description: 'Deletes a user using Supabase Admin API in a Supabase project on Aliyun. Requires the project\'s PublicConnectUrl as url and serviceRoleKey as api_key obtained from other tools.',
+      parameters: z.object({
+        url: z.string().describe('PublicConnectUrl for the Supabase project (e.g., https://sbp-xxx.supabase.opentrust.net)'),
+        api_key: z.string().describe('serviceRoleKey for authentication (required for Admin API access)'),
+        user_id: z.string().describe('The ID of the user to delete'),
+      }),
+      execute: async ({ url, api_key, user_id }) => {
+        try {
+          // 使用平台接口删除用户
+          try {
+            await platform.deleteAuthUserViaUrl({ url, api_key, user_id });
+            return {
+              content: [{
+                type: 'text',
+                text: JSON.stringify({ message: 'User deleted successfully' }, null, 2)
+              }]
+            };
+          } catch (tsError) {
+            console.error(`Debug - TypeScript interface failed: ${tsError instanceof Error ? tsError.message : 'Unknown error'}`);
+            console.error('Debug - Falling back to curl command');
+            
+            // 如果 TypeScript 接口失败，回退到 curl 命令
+            let apiUrl = url;
+            if (!apiUrl.startsWith('http://') && !apiUrl.startsWith('https://')) {
+              apiUrl = "https://" + apiUrl;
+            }
+            const apiEndpoint = `${apiUrl}/auth/v1/admin/users/${encodeURIComponent(user_id)}`;
+
+            const command = [
+              'curl',
+              '-X DELETE',
+              escapeShellArg(apiEndpoint),
+              '-H', escapeShellArg(`apikey: ${api_key}`),
+              '-H', escapeShellArg(`Authorization: Bearer ${api_key}`),
+              '-H', escapeShellArg('Content-Type: application/json')
+            ].join(' ');
+
+            console.error(`Debug delete_auth_user - Executing curl command: ${command}`);
+
+            const result = await new Promise((resolve, reject) => {
+              exec(command, (error, stdout, stderr) => {
+                if (error) {
+                  console.error(`Debug - exec error: ${error.message}`);
+                  console.error(`Debug - stderr: ${stderr}`);
+                  reject(new Error(`Command failed: ${stderr || error.message}`));
+                  return;
+                }
+                if (stderr) {
+                  console.warn(`Debug - stderr output: ${stderr}`);
+                }
+                
+                // DELETE 请求可能返回空响应或 JSON
+                if (stdout.trim()) {
+                  try {
+                    const parsedOutput = JSON.parse(stdout);
+                    resolve(parsedOutput);
+                  } catch (parseError) {
+                    resolve({ message: 'User deleted successfully' });
+                  }
+                } else {
+                  resolve({ message: 'User deleted successfully' });
+                }
+              });
+            });
+
+            return {
+              content: [{
+                type: 'text',
+                text: JSON.stringify(result, null, 2)
+              }]
+            };
+          }
+        } catch (error) {
+          const message = error instanceof Error ? error.message : 'Unknown error occurred';
+          console.error(`Debug - Error: ${message}`);
+          return {
+            content: [{ type: 'text', text: `Error: ${message}` }]
+          };
+        }
+      }
+    }),
+
+    update_auth_user: tool({
+      description: 'Updates user details using Supabase Admin API in a Supabase project on Aliyun. Requires the project\'s PublicConnectUrl as url and serviceRoleKey as api_key obtained from other tools.',
+      parameters: z.object({
+        url: z.string().describe('PublicConnectUrl for the Supabase project (e.g., https://sbp-xxx.supabase.opentrust.net)'),
+        api_key: z.string().describe('serviceRoleKey for authentication (required for Admin API access)'),
+        user_id: z.string().describe('The ID of the user to update'),
+        email: z.string().optional().describe('New email address for the user'),
+        phone: z.string().optional().describe('New phone number for the user'),
+        password: z.string().optional().describe('New password for the user'),
+        email_confirm: z.boolean().optional().describe('Whether to confirm the email address'),
+        phone_confirm: z.boolean().optional().describe('Whether to confirm the phone number'),
+        user_metadata: z.record(z.any()).optional().describe('Custom user metadata to update'),
+        app_metadata: z.record(z.any()).optional().describe('Custom app metadata to update'),
+        ban_duration: z.string().optional().describe('Ban duration (e.g., "24h", "1w")'),
+      }),
+      execute: async ({ url, api_key, user_id, email, phone, password, email_confirm, phone_confirm, user_metadata, app_metadata, ban_duration }) => {
+        try {
+          // 使用平台接口更新用户
+          try {
+            const result = await platform.updateAuthUserViaUrl({
+              url,
+              api_key,
+              user_id,
+              email,
+              phone,
+              password,
+              email_confirm,
+              phone_confirm,
+              user_metadata,
+              app_metadata,
+              ban_duration,
+            });
+            return {
+              content: [{
+                type: 'text',
+                text: JSON.stringify(result, null, 2)
+              }]
+            };
+          } catch (tsError) {
+            console.error(`Debug - TypeScript interface failed: ${tsError instanceof Error ? tsError.message : 'Unknown error'}`);
+            console.error('Debug - Falling back to curl command');
+            
+            // 如果 TypeScript 接口失败，回退到 curl 命令
+            let apiUrl = url;
+            if (!apiUrl.startsWith('http://') && !apiUrl.startsWith('https://')) {
+              apiUrl = "https://" + apiUrl;
+            }
+            const apiEndpoint = `${apiUrl}/auth/v1/admin/users/${encodeURIComponent(user_id)}`;
+
+            // 构建请求体
+            const requestBody: Record<string, any> = {};
+            if (email !== undefined) requestBody.email = email;
+            if (phone !== undefined) requestBody.phone = phone;
+            if (password !== undefined) requestBody.password = password;
+            if (email_confirm !== undefined) requestBody.email_confirm = email_confirm;
+            if (phone_confirm !== undefined) requestBody.phone_confirm = phone_confirm;
+            if (user_metadata !== undefined) requestBody.user_metadata = user_metadata;
+            if (app_metadata !== undefined) requestBody.app_metadata = app_metadata;
+            if (ban_duration !== undefined) requestBody.ban_duration = ban_duration;
+
+            const jsonData = JSON.stringify(requestBody);
+
+            const command = [
+              'curl',
+              '-X PUT',
+              escapeShellArg(apiEndpoint),
+              '-H', escapeShellArg(`apikey: ${api_key}`),
+              '-H', escapeShellArg(`Authorization: Bearer ${api_key}`),
+              '-H', escapeShellArg('Content-Type: application/json'),
+              '-d', escapeShellArg(jsonData)
+            ].join(' ');
+
+            console.error(`Debug update_auth_user - Executing curl command: ${command}`);
+
+            const result = await new Promise((resolve, reject) => {
+              exec(command, (error, stdout, stderr) => {
+                if (error) {
+                  console.error(`Debug - exec error: ${error.message}`);
+                  console.error(`Debug - stderr: ${stderr}`);
+                  reject(new Error(`Command failed: ${stderr || error.message}`));
+                  return;
+                }
+                if (stderr) {
+                  console.warn(`Debug - stderr output: ${stderr}`);
+                }
+                
+                try {
+                  const parsedOutput = JSON.parse(stdout);
+                  resolve(parsedOutput);
+                } catch (parseError) {
+                  const parseErrorMessage = parseError instanceof Error ? parseError.message : String(parseError);
+                  console.error(`Debug - JSON parse error: ${parseErrorMessage}`);
+                  console.error(`Debug - stdout received: ${stdout}`);
+                  reject(new Error(`Failed to parse curl output as JSON: ${stdout}`));
+                }
+              });
+            });
+
+            return {
+              content: [{
+                type: 'text',
+                text: JSON.stringify(result, null, 2)
+              }]
+            };
+          }
+        } catch (error) {
+          const message = error instanceof Error ? error.message : 'Unknown error occurred';
+          console.error(`Debug - Error: ${message}`);
+          return {
+            content: [{ type: 'text', text: `Error: ${message}` }]
+          };
+        }
+      }
+    }),
+
+    // Storage operations
+    list_storage_buckets: tool({
+      description: 'Lists all storage buckets in a Supabase project on Aliyun. Requires the project\'s PublicConnectUrl as url and serviceRoleKey as api_key obtained from other tools.',
+      parameters: z.object({
+        url: z.string().describe('PublicConnectUrl for the Supabase project (e.g., https://sbp-xxx.supabase.opentrust.net)'),
+        api_key: z.string().describe('serviceRoleKey for authentication'),
+      }),
+      execute: async ({ url, api_key }) => {
+        try {
+          const result = await platform.listStorageBucketsViaUrl({ url, api_key });
+          return {
+            content: [{
+              type: 'text',
+              text: JSON.stringify(result, null, 2)
+            }]
+          };
+        } catch (error) {
+          const message = error instanceof Error ? error.message : 'Unknown error occurred';
+          console.error(`Debug - Error: ${message}`);
+          return {
+            content: [{ type: 'text', text: `Error: ${message}` }]
+          };
+        }
+      }
+    }),
+
+    create_storage_bucket: tool({
+      description: 'Creates a new storage bucket in a Supabase project on Aliyun. Requires the project\'s PublicConnectUrl as url and serviceRoleKey as api_key obtained from other tools.',
+      parameters: z.object({
+        url: z.string().describe('PublicConnectUrl for the Supabase project (e.g., https://sbp-xxx.supabase.opentrust.net)'),
+        api_key: z.string().describe('serviceRoleKey for authentication'),
+        name: z.string().describe('Name of the bucket to create'),
+        public: z.boolean().optional().describe('Whether the bucket should be public (default: false)'),
+        file_size_limit: z.number().optional().describe('Maximum file size in bytes'),
+        allowed_mime_types: z.array(z.string()).optional().describe('Array of allowed MIME types'),
+      }),
+      execute: async ({ url, api_key, name, public: isPublic, file_size_limit, allowed_mime_types }) => {
+        try {
+          const result = await platform.createStorageBucketViaUrl({
+            url,
+            api_key,
+            name,
+            public: isPublic,
+            file_size_limit,
+            allowed_mime_types,
+          });
+          return {
+            content: [{
+              type: 'text',
+              text: JSON.stringify(result, null, 2)
+            }]
+          };
+        } catch (error) {
+          const message = error instanceof Error ? error.message : 'Unknown error occurred';
+          console.error(`Debug - Error: ${message}`);
+          return {
+            content: [{ type: 'text', text: `Error: ${message}` }]
+          };
+        }
+      }
+    }),
+
+    delete_storage_bucket: tool({
+      description: 'Deletes a storage bucket from a Supabase project on Aliyun. Requires the project\'s PublicConnectUrl as url and serviceRoleKey as api_key obtained from other tools.',
+      parameters: z.object({
+        url: z.string().describe('PublicConnectUrl for the Supabase project (e.g., https://sbp-xxx.supabase.opentrust.net)'),
+        api_key: z.string().describe('serviceRoleKey for authentication'),
+        bucket_name: z.string().describe('Name of the bucket to delete'),
+      }),
+      execute: async ({ url, api_key, bucket_name }) => {
+        try {
+          await platform.deleteStorageBucketViaUrl({ url, api_key, bucket_name });
+          return {
+            content: [{
+              type: 'text',
+              text: JSON.stringify({ message: 'Bucket deleted successfully' }, null, 2)
+            }]
+          };
+        } catch (error) {
+          const message = error instanceof Error ? error.message : 'Unknown error occurred';
+          console.error(`Debug - Error: ${message}`);
+          return {
+            content: [{ type: 'text', text: `Error: ${message}` }]
+          };
+        }
+      }
+    }),
+
+    list_storage_files: tool({
+      description: 'Lists files in a storage bucket in a Supabase project on Aliyun. Requires the project\'s PublicConnectUrl as url and serviceRoleKey as api_key obtained from other tools.',
+      parameters: z.object({
+        url: z.string().describe('PublicConnectUrl for the Supabase project (e.g., https://sbp-xxx.supabase.opentrust.net)'),
+        api_key: z.string().describe('serviceRoleKey for authentication'),
+        bucket_name: z.string().describe('Name of the bucket'),
+        path: z.string().optional().describe('Path prefix to filter files'),
+        limit: z.number().optional().describe('Maximum number of files to return'),
+        offset: z.number().optional().describe('Number of files to skip'),
+        sort_by_column: z.string().optional().describe('Column to sort by (e.g., "name", "created_at", "updated_at")'),
+        sort_by_order: z.enum(['asc', 'desc']).optional().describe('Sort order'),
+      }),
+      execute: async ({ url, api_key, bucket_name, path, limit, offset, sort_by_column, sort_by_order }) => {
+        try {
+          const result = await platform.listStorageFilesViaUrl({
+            url,
+            api_key,
+            bucket_name,
+            path,
+            limit,
+            offset,
+            sort_by: sort_by_column || sort_by_order ? {
+              column: sort_by_column,
+              order: sort_by_order,
+            } : undefined,
+          });
+          return {
+            content: [{
+              type: 'text',
+              text: JSON.stringify(result, null, 2)
+            }]
+          };
+        } catch (error) {
+          const message = error instanceof Error ? error.message : 'Unknown error occurred';
+          console.error(`Debug - Error: ${message}`);
+          return {
+            content: [{ type: 'text', text: `Error: ${message}` }]
+          };
+        }
+      }
+    }),
+
+    upload_storage_file: tool({
+      description: 'Uploads a file to a storage bucket in a Supabase project on Aliyun. Requires the project\'s PublicConnectUrl as url and serviceRoleKey as api_key obtained from other tools.',
+      parameters: z.object({
+        url: z.string().describe('PublicConnectUrl for the Supabase project (e.g., https://sbp-xxx.supabase.opentrust.net)'),
+        api_key: z.string().describe('serviceRoleKey for authentication'),
+        bucket_name: z.string().describe('Name of the bucket'),
+        file_path: z.string().describe('Path where the file should be stored in the bucket'),
+        file_content: z.string().describe('Content of the file to upload (as base64 encoded string or plain text)'),
+        content_type: z.string().optional().describe('MIME type of the file (e.g., "image/png", "text/plain")'),
+        upsert: z.boolean().optional().describe('Whether to overwrite if file already exists (default: false)'),
+      }),
+      execute: async ({ url, api_key, bucket_name, file_path, file_content, content_type, upsert }) => {
+        try {
+          // 尝试将 base64 字符串解码为 ArrayBuffer
+          let fileData: string | ArrayBuffer | Blob = file_content;
+          try {
+            // 检查是否是 base64 编码
+            if (file_content.startsWith('data:')) {
+              // data URL 格式: data:image/png;base64,...
+              const parts = file_content.split(',');
+              const base64Data = parts[1];
+              if (base64Data) {
+                const binaryString = atob(base64Data);
+                const bytes = new Uint8Array(binaryString.length);
+                for (let i = 0; i < binaryString.length; i++) {
+                  bytes[i] = binaryString.charCodeAt(i);
+                }
+                fileData = bytes.buffer;
+              }
+            } else if (/^[A-Za-z0-9+/=]+$/.test(file_content) && file_content.length > 100) {
+              // 可能是 base64 字符串
+              const binaryString = atob(file_content);
+              const bytes = new Uint8Array(binaryString.length);
+              for (let i = 0; i < binaryString.length; i++) {
+                bytes[i] = binaryString.charCodeAt(i);
+              }
+              fileData = bytes.buffer;
+            }
+          } catch {
+            // 如果不是 base64，保持原样作为字符串
+            fileData = file_content;
+          }
+
+          const result = await platform.uploadStorageFileViaUrl({
+            url,
+            api_key,
+            bucket_name,
+            file_path,
+            file_content: fileData,
+            content_type,
+            upsert,
+          });
+          return {
+            content: [{
+              type: 'text',
+              text: JSON.stringify(result, null, 2)
+            }]
+          };
+        } catch (error) {
+          const message = error instanceof Error ? error.message : 'Unknown error occurred';
+          console.error(`Debug - Error: ${message}`);
+          return {
+            content: [{ type: 'text', text: `Error: ${message}` }]
+          };
+        }
+      }
+    }),
+
+    download_storage_file: tool({
+      description: 'Downloads a file from a storage bucket in a Supabase project on Aliyun. Requires the project\'s PublicConnectUrl as url and serviceRoleKey as api_key obtained from other tools.',
+      parameters: z.object({
+        url: z.string().describe('PublicConnectUrl for the Supabase project (e.g., https://sbp-xxx.supabase.opentrust.net)'),
+        api_key: z.string().describe('serviceRoleKey for authentication'),
+        bucket_name: z.string().describe('Name of the bucket'),
+        file_path: z.string().describe('Path of the file to download'),
+      }),
+      execute: async ({ url, api_key, bucket_name, file_path }) => {
+        try {
+          const blob = await platform.downloadStorageFileViaUrl({
+            url,
+            api_key,
+            bucket_name,
+            file_path,
+          });
+          
+          // 将 Blob 转换为 base64 字符串以便返回
+          // 使用更安全的方法处理大文件，避免堆栈溢出
+          const arrayBuffer = await blob.arrayBuffer();
+          const uint8Array = new Uint8Array(arrayBuffer);
+          // 完全避免展开运算符，逐个处理字节
+          let binaryString = '';
+          for (let i = 0; i < uint8Array.length; i++) {
+            const byte = uint8Array[i];
+            if (byte !== undefined) {
+              binaryString += String.fromCharCode(byte);
+            }
+          }
+          const base64 = btoa(binaryString);
+          
+          return {
+            content: [{
+              type: 'text',
+              text: JSON.stringify({
+                content: base64,
+                content_type: blob.type || 'application/octet-stream',
+                size: blob.size,
+              }, null, 2)
+            }]
+          };
+        } catch (error) {
+          const message = error instanceof Error ? error.message : 'Unknown error occurred';
+          console.error(`Debug - Error: ${message}`);
+          return {
+            content: [{ type: 'text', text: `Error: ${message}` }]
+          };
+        }
+      }
+    }),
+
+    delete_storage_file: tool({
+      description: 'Deletes one or more files from a storage bucket in a Supabase project on Aliyun. Requires the project\'s PublicConnectUrl as url and serviceRoleKey as api_key obtained from other tools.',
+      parameters: z.object({
+        url: z.string().describe('PublicConnectUrl for the Supabase project (e.g., https://sbp-xxx.supabase.opentrust.net)'),
+        api_key: z.string().describe('serviceRoleKey for authentication'),
+        bucket_name: z.string().describe('Name of the bucket'),
+        file_path: z.union([
+          z.string(),
+          z.array(z.string())
+        ]).describe('Path(s) of the file(s) to delete. Can be a single path or an array of paths.'),
+      }),
+      execute: async ({ url, api_key, bucket_name, file_path }) => {
+        try {
+          const result = await platform.deleteStorageFileViaUrl({
+            url,
+            api_key,
+            bucket_name,
+            file_path,
+          });
+          return {
+            content: [{
+              type: 'text',
+              text: JSON.stringify(result, null, 2)
+            }]
+          };
+        } catch (error) {
+          const message = error instanceof Error ? error.message : 'Unknown error occurred';
+          console.error(`Debug - Error: ${message}`);
+          return {
+            content: [{ type: 'text', text: `Error: ${message}` }]
+          };
+        }
+      }
+    }),
+
   };
 }

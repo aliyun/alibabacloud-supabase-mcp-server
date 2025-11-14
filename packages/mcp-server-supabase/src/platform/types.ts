@@ -332,6 +332,148 @@ export type SupabasePlatform = {
     api_key: string;
   }): Promise<Array<{ table_name: string }>>;
 
+  // Auth operations via URL and API key
+  listAuthUsersViaUrl(options: {
+    url: string;
+    api_key: string;
+    page?: number;
+    per_page?: number;
+  }): Promise<{
+    users: Array<{
+      id: string;
+      aud: string;
+      role: string;
+      email?: string;
+      email_confirmed_at?: string;
+      phone?: string;
+      phone_confirmed_at?: string;
+      confirmed_at?: string;
+      last_sign_in_at?: string;
+      app_metadata?: Record<string, any>;
+      user_metadata?: Record<string, any>;
+      identities?: Array<{
+        id: string;
+        user_id: string;
+        identity_data: Record<string, any>;
+        provider: string;
+        last_sign_in_at?: string;
+        created_at?: string;
+        updated_at?: string;
+      }>;
+      created_at: string;
+      updated_at: string;
+    }>;
+    total?: number;
+  }>;
+
+  getAuthUserViaUrl(options: {
+    url: string;
+    api_key: string;
+    user_id: string;
+  }): Promise<{
+    id: string;
+    aud: string;
+    role: string;
+    email?: string;
+    email_confirmed_at?: string;
+    phone?: string;
+    phone_confirmed_at?: string;
+    confirmed_at?: string;
+    last_sign_in_at?: string;
+    app_metadata?: Record<string, any>;
+    user_metadata?: Record<string, any>;
+    identities?: Array<{
+      id: string;
+      user_id: string;
+      identity_data: Record<string, any>;
+      provider: string;
+      last_sign_in_at?: string;
+      created_at?: string;
+      updated_at?: string;
+    }>;
+    created_at: string;
+    updated_at: string;
+  }>;
+
+  createAuthUserViaUrl(options: {
+    url: string;
+    api_key: string;
+    email?: string;
+    phone?: string;
+    password?: string;
+    email_confirm?: boolean;
+    phone_confirm?: boolean;
+    user_metadata?: Record<string, any>;
+    app_metadata?: Record<string, any>;
+    ban_duration?: string;
+  }): Promise<{
+    id: string;
+    aud: string;
+    role: string;
+    email?: string;
+    email_confirmed_at?: string;
+    phone?: string;
+    phone_confirmed_at?: string;
+    confirmed_at?: string;
+    last_sign_in_at?: string;
+    app_metadata?: Record<string, any>;
+    user_metadata?: Record<string, any>;
+    identities?: Array<{
+      id: string;
+      user_id: string;
+      identity_data: Record<string, any>;
+      provider: string;
+      last_sign_in_at?: string;
+      created_at?: string;
+      updated_at?: string;
+    }>;
+    created_at: string;
+    updated_at: string;
+  }>;
+
+  deleteAuthUserViaUrl(options: {
+    url: string;
+    api_key: string;
+    user_id: string;
+  }): Promise<void>;
+
+  updateAuthUserViaUrl(options: {
+    url: string;
+    api_key: string;
+    user_id: string;
+    email?: string;
+    phone?: string;
+    password?: string;
+    email_confirm?: boolean;
+    phone_confirm?: boolean;
+    user_metadata?: Record<string, any>;
+    app_metadata?: Record<string, any>;
+    ban_duration?: string;
+  }): Promise<{
+    id: string;
+    aud: string;
+    role: string;
+    email?: string;
+    email_confirmed_at?: string;
+    phone?: string;
+    phone_confirmed_at?: string;
+    confirmed_at?: string;
+    last_sign_in_at?: string;
+    app_metadata?: Record<string, any>;
+    user_metadata?: Record<string, any>;
+    identities?: Array<{
+      id: string;
+      user_id: string;
+      identity_data: Record<string, any>;
+      provider: string;
+      last_sign_in_at?: string;
+      created_at?: string;
+      updated_at?: string;
+    }>;
+    created_at: string;
+    updated_at: string;
+  }>;
+
   // Edge functions
   listEdgeFunctions(projectId: string): Promise<EdgeFunction[]>;
   getEdgeFunction(
@@ -370,4 +512,76 @@ export type SupabasePlatform = {
   getStorageConfig(projectId: string): Promise<StorageConfig>;
   updateStorageConfig(projectId: string, config: StorageConfig): Promise<void>;
   listAllBuckets(projectId: string): Promise<StorageBucket[]>;
+
+  // Storage operations via URL and API key
+  listStorageBucketsViaUrl(options: {
+    url: string;
+    api_key: string;
+  }): Promise<StorageBucket[]>;
+
+  createStorageBucketViaUrl(options: {
+    url: string;
+    api_key: string;
+    name: string;
+    public?: boolean;
+    file_size_limit?: number;
+    allowed_mime_types?: string[];
+  }): Promise<StorageBucket>;
+
+  deleteStorageBucketViaUrl(options: {
+    url: string;
+    api_key: string;
+    bucket_name: string;
+  }): Promise<void>;
+
+  listStorageFilesViaUrl(options: {
+    url: string;
+    api_key: string;
+    bucket_name: string;
+    path?: string;
+    limit?: number;
+    offset?: number;
+    sort_by?: {
+      column?: string;
+      order?: 'asc' | 'desc';
+    };
+  }): Promise<Array<{
+    name: string;
+    id: string;
+    updated_at: string;
+    created_at: string;
+    last_accessed_at: string;
+    metadata?: Record<string, any>;
+  }>>;
+
+  uploadStorageFileViaUrl(options: {
+    url: string;
+    api_key: string;
+    bucket_name: string;
+    file_path: string;
+    file_content: string | ArrayBuffer | Blob;
+    content_type?: string;
+    upsert?: boolean;
+  }): Promise<{
+    path: string;
+    id: string;
+    fullPath: string;
+  }>;
+
+  downloadStorageFileViaUrl(options: {
+    url: string;
+    api_key: string;
+    bucket_name: string;
+    file_path: string;
+  }): Promise<Blob>;
+
+  deleteStorageFileViaUrl(options: {
+    url: string;
+    api_key: string;
+    bucket_name: string;
+    file_path: string | string[];
+  }): Promise<Array<{
+    name: string;
+    message?: string;
+  }>>;
 };

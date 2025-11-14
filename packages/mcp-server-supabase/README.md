@@ -145,12 +145,30 @@ The Aliyun tools are organized into the following categories:
 - **`list_indexes`**: Lists all indexes on tables in a schema including index name, table name, and index definition. Requires the project's PublicConnectUrl as url and serviceRoleKey as api_key obtained from other tools.
 - **`list_extensions`**: Lists all PostgreSQL extensions installed in the database. Shows extension name, version, schema, and description. Requires the project's PublicConnectUrl as url and serviceRoleKey as api_key obtained from other tools.
 
+#### Authentication Users
+
+- **`list_auth_users`**: Lists all authentication users in a Supabase project on Aliyun. Requires the project's PublicConnectUrl as url and serviceRoleKey as api_key obtained from other tools. Uses Supabase Admin API to retrieve user information. Supports pagination with optional page and per_page parameters.
+- **`get_auth_user`**: Retrieves details for a specific user in a Supabase project on Aliyun. Requires the project's PublicConnectUrl as url and serviceRoleKey as api_key obtained from other tools. Uses Supabase Admin API to retrieve user information.
+- **`create_auth_user`**: Creates a new user using Supabase Admin API in a Supabase project on Aliyun. Requires the project's PublicConnectUrl as url and serviceRoleKey as api_key obtained from other tools. Supports email, phone, password, and custom metadata.
+- **`update_auth_user`**: Updates user details using Supabase Admin API in a Supabase project on Aliyun. Requires the project's PublicConnectUrl as url and serviceRoleKey as api_key obtained from other tools. Can update email, phone, password, and metadata.
+- **`delete_auth_user`**: Deletes a user using Supabase Admin API in a Supabase project on Aliyun. Requires the project's PublicConnectUrl as url and serviceRoleKey as api_key obtained from other tools.
+
 #### Edge Functions
 
 - **`deploy_edge_function`**: Deploys an Edge Function to a Supabase project on Aliyun. Requires the project's PublicConnectUrl as url and serviceRoleKey as api_key. The function file must be named `index.ts` and written in TypeScript. Supports optional JWT verification configuration. Note: If your function code contains import statements, ensure your Supabase instance has public internet access to download dependencies.
 - **`list_edge_functions`**: Lists all Edge Functions in a Supabase project on Aliyun. Requires the project's PublicConnectUrl as url and serviceRoleKey as api_key. Returns function metadata including name, slug, status, version, and creation/update timestamps.
 - **`invoke_edge_function`**: Invokes an Edge Function in a Supabase project on Aliyun. Requires the project's PublicConnectUrl as url and anon key (not serviceRoleKey) for authentication. Supports optional JSON data to send as request body. Returns the function's response.
 - **`delete_edge_function`**: Deletes an Edge Function from a Supabase project on Aliyun. Requires the project's PublicConnectUrl as url and serviceRoleKey as api_key. Specify the function name (slug) to delete.
+
+#### Storage
+
+- **`list_storage_buckets`**: Lists all storage buckets in a Supabase project on Aliyun. Requires the project's PublicConnectUrl as url and serviceRoleKey as api_key obtained from other tools.
+- **`create_storage_bucket`**: Creates a new storage bucket in a Supabase project on Aliyun. Requires the project's PublicConnectUrl as url and serviceRoleKey as api_key obtained from other tools. Supports public/private configuration, file size limits, and MIME type restrictions.
+- **`delete_storage_bucket`**: Deletes a storage bucket from a Supabase project on Aliyun. Requires the project's PublicConnectUrl as url and serviceRoleKey as api_key obtained from other tools.
+- **`list_storage_files`**: Lists files in a storage bucket in a Supabase project on Aliyun. Requires the project's PublicConnectUrl as url and serviceRoleKey as api_key obtained from other tools. Supports path filtering, pagination, and sorting.
+- **`upload_storage_file`**: Uploads a file to a storage bucket in a Supabase project on Aliyun. Requires the project's PublicConnectUrl as url and serviceRoleKey as api_key obtained from other tools. Supports content type specification and upsert option.
+- **`download_storage_file`**: Downloads a file from a storage bucket in a Supabase project on Aliyun. Requires the project's PublicConnectUrl as url and serviceRoleKey as api_key obtained from other tools. Returns file content as base64-encoded string.
+- **`delete_storage_file`**: Deletes one or more files from a storage bucket in a Supabase project on Aliyun. Requires the project's PublicConnectUrl as url and serviceRoleKey as api_key obtained from other tools. Can delete a single file or multiple files at once.
 
 ## Security Risks
 
