@@ -73,6 +73,43 @@ Alternatively, you can use the separate environment variables:
 }
 ```
 
+### Scoping to a Specific Aliyun Project
+
+To scope the MCP server to a specific Aliyun project and avoid traversing all regions and projects, you can use the `--project-id` and `--region-id` flags:
+
+```json
+{
+  "mcpServers": {
+    "supabase": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@aliyun-supabase/mcp-server-supabase@latest",
+        "--features=aliyun",
+        "--project-id=your-project-id",
+        "--region-id=cn-hangzhou"
+      ],
+      "env": {
+        "ALIBABA_CLOUD_ACCESS_KEY_ID": "<YOUR_AK>",
+        "ALIBABA_CLOUD_ACCESS_KEY_SECRET": "<YOUR_SK>"
+      }
+    }
+  }
+}
+```
+
+When `--project-id` is specified:
+- All Aliyun tools will automatically use this project ID
+- The `project_id` parameter will be automatically injected and removed from tool parameters
+- You won't need to specify the project ID when calling tools
+
+When `--region-id` is specified:
+- All Aliyun tools will automatically use this region ID
+- The `region_id` parameter will be automatically injected and removed from tool parameters
+- This helps avoid traversing all regions to find projects
+
+> **Note:** Both `--project-id` and `--region-id` are optional. If not specified, tools will work as before, requiring you to provide these parameters when calling tools.
+
 ### Read-Only Mode
 
 For enhanced security, especially when working with production databases, you can enable read-only mode by adding the `--read-only` flag. In read-only mode:

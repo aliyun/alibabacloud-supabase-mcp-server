@@ -14,6 +14,8 @@ async function main() {
     values: {
       ['access-token']: cliAccessToken,
       ['project-ref']: projectId,
+      ['project-id']: aliyunProjectId,
+      ['region-id']: aliyunRegionId,
       ['read-only']: readOnly,
       ['api-url']: apiUrl,
       ['version']: showVersion,
@@ -25,6 +27,12 @@ async function main() {
         type: 'string',
       },
       ['project-ref']: {
+        type: 'string',
+      },
+      ['project-id']: {
+        type: 'string',
+      },
+      ['region-id']: {
         type: 'string',
       },
       ['read-only']: {
@@ -78,6 +86,8 @@ async function main() {
   const server = createSupabaseMcpServer({
     platform,
     projectId,
+    aliyunProjectId,
+    aliyunRegionId,
     readOnly,
     features,
   });

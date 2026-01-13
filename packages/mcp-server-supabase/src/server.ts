@@ -47,6 +47,22 @@ export type SupabaseMcpServerOptions = {
   projectId?: string;
 
   /**
+   * The Aliyun project ID to scope the server to.
+   *
+   * If specified, Aliyun tools will automatically use this project ID
+   * instead of requiring it as a parameter or traversing all regions/projects.
+   */
+  aliyunProjectId?: string;
+
+  /**
+   * The Aliyun region ID to scope the server to.
+   *
+   * If specified along with aliyunProjectId, Aliyun tools will automatically
+   * use this region ID instead of requiring it as a parameter.
+   */
+  aliyunRegionId?: string;
+
+  /**
    * Executes database queries in read-only mode if true.
    */
   readOnly?: boolean;
@@ -89,6 +105,8 @@ export function createSupabaseMcpServer(options: SupabaseMcpServerOptions) {
   const {
     platform,
     projectId,
+    aliyunProjectId,
+    aliyunRegionId,
     readOnly,
     features,
     contentApiUrl = 'https://supabase.com/docs/api/graphql',
@@ -118,7 +136,12 @@ export function createSupabaseMcpServer(options: SupabaseMcpServerOptions) {
       }
       
       if (enabledFeatures.has('aliyun')) {
-        Object.assign(tools, await getAliyunTools({ platform, readOnly }));
+        Object.assign(tools, await getAliyunTools({ 
+          platform, 
+          readOnly,
+          aliyunProjectId,
+          aliyunRegionId,
+        }));
       }
       
       if (enabledFeatures.has('branching')) {

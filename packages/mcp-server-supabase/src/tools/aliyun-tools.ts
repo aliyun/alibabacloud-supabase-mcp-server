@@ -2,10 +2,21 @@ import type { SupabasePlatform } from '../platform/types.js';
 import { type Tool, tool } from '@supabase/mcp-utils';
 import { z } from 'zod';
 import { exec } from 'child_process';
+import { injectableTool } from './util.js';
 
 export type AliyunToolsOptions = {
   platform: SupabasePlatform;
   readOnly?: boolean;
+  /**
+   * The Aliyun project ID to scope tools to.
+   * If specified, tools will automatically inject this project_id.
+   */
+  aliyunProjectId?: string;
+  /**
+   * The Aliyun region ID to scope tools to.
+   * If specified, tools will automatically inject this region_id.
+   */
+  aliyunRegionId?: string;
 };
 
 /**
@@ -27,21 +38,31 @@ const escapeRegExp = (str: string): string => {
   return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 };
 
-export async function getAliyunTools({ platform, readOnly }: AliyunToolsOptions): Promise<Record<string, Tool>> {
+export async function getAliyunTools({ 
+  platform, 
+  readOnly,
+  aliyunProjectId,
+  aliyunRegionId,
+}: AliyunToolsOptions): Promise<Record<string, Tool>> {
   
   const WRITE_KEYWORDS = [
     'CREATE', 'DROP', 'ALTER', 'TRUNCATE',
     'INSERT', 'UPDATE', 'DELETE', 'MERGE', 'REPLACE'
   ];
 
+  // Prepare inject values for tools that need project_id and/or region_id
+  const project_id = aliyunProjectId;
+  const region_id = aliyunRegionId;
+
   return {
-    list_aliyun_supabase_projects: tool({
+    list_aliyun_supabase_projects: injectableTool({
       description: 'Lists all Supabase projects deployed on the Aliyun platform. Use this to retrieve a list of existing projects with their basic information. If no projects are found in the default region (cn-hangzhou), try other regions obtained from the describe_regions tool.',
       parameters: z.object({
         region_id: z.string().optional().describe('Region ID (e.g., cn-hangzhou, cn-shanghai, cn-beijing, etc.)'),
         next_token: z.string().optional().describe('Next token for pagination'),
         max_results: z.number().optional().describe('Maximum number of results to return')
       }),
+      inject: { region_id },
       execute: async (options) => {
         try {
           const result = await platform.listAliyunSupabaseProjects(options);
@@ -58,15 +79,16 @@ export async function getAliyunTools({ platform, readOnly }: AliyunToolsOptions)
       }
     }),
 
-    get_supabase_project: tool({
+    get_supabase_project: injectableTool({
       description: 'Gets details for a specific Supabase project on Aliyun platform.',
       parameters: z.object({
         project_id: z.string().describe('The ID of the Supabase project.'),
         region_id: z.string().optional().describe('Region ID'),
       }),
+      inject: { project_id, region_id },
       execute: async (options) => {
         try {
-          // 这里的 options 将是 { project_id: '...' }
+          // 这里的 options 将是 { project_id: '...', region_id: '...' } (injected if provided)
           const result = await platform.getAliyunSupabaseProject(options);
           // 返回 JSON 格式的结果，让 AI 自己去解析和总结
           return {
@@ -103,12 +125,13 @@ export async function getAliyunTools({ platform, readOnly }: AliyunToolsOptions)
     //   },
     // }),
 
-    get_supabase_project_api_keys: tool({
+    get_supabase_project_api_keys: injectableTool({
       description: 'Gets the Supabase project API keys including anon key and serviceRoleKey.',
       parameters: z.object({
         project_id: z.string().describe('The Supabase instance ID.'),
         region_id: z.string().optional().describe('The region ID where the instance is located.'),
       }),
+      inject: { project_id, region_id },
       execute: async (options) => {
         try {
           const result = await platform.getAliyunSupabaseProjectApiKeys(options);
@@ -124,13 +147,14 @@ export async function getAliyunTools({ platform, readOnly }: AliyunToolsOptions)
       }
     }),
 
-    modify_supabase_project_security_ip_list: tool({
+    modify_supabase_project_security_ip_list: injectableTool({
       description: 'Modify the IP whitelist for a Supabase project. You need to add the client IP address or IP address range to the whitelist before using the Supabase instance.',
       parameters: z.object({
         project_id: z.string().describe('The Supabase instance ID.'),
         region_id: z.string().optional().describe('Region ID. You can call the DescribeRegions API to view available region IDs.'),
         security_ip_list: z.string().describe('Comma-separated list of IP addresses or CIDR blocks to add to the whitelist. Up to 1000 entries. Format: 10.23.12.24 (IP) or 10.23.12.24/24 (CIDR)'),
       }),
+      inject: { project_id, region_id },
       execute: async (options) => {
         try {
           const result = await platform.modifyAliyunSupabaseProjectSecurityIps({
@@ -154,13 +178,14 @@ export async function getAliyunTools({ platform, readOnly }: AliyunToolsOptions)
       }
     }),
 
-    reset_supabase_project_password: tool({
+    reset_supabase_project_password: injectableTool({
       description: 'Reset the database password for a Supabase project.',
       parameters: z.object({
         project_id: z.string().describe('The Supabase instance ID.'),
         region_id: z.string().optional().describe('Instance region ID.'),
         account_password: z.string().describe('Database account password. Must contain at least three of the following: uppercase letters, lowercase letters, numbers, and special characters. Special characters include: !@#$%^&*()_+-=. Password length must be between 8 and 32 characters.'),
       }),
+      inject: { project_id, region_id },
       execute: async (options) => {
         try {
           const result = await platform.resetAliyunSupabaseProjectPassword(options);
@@ -176,7 +201,7 @@ export async function getAliyunTools({ platform, readOnly }: AliyunToolsOptions)
       }
     }),
 
-    create_supabase_project: tool({
+    create_supabase_project: injectableTool({
       description: 'Create a new Supabase project on Aliyun platform.',
       parameters: z.object({
         project_name: z.string().describe('Project name. Must be 1-128 characters long. Can only contain English letters, numbers, hyphens (-) and underscores (_). Must start with an English letter or underscore (_).'),
@@ -191,6 +216,7 @@ export async function getAliyunTools({ platform, readOnly }: AliyunToolsOptions)
         disk_performance_level: z.enum(['PL0', 'PL1']).optional().describe('Cloud disk PL level, default is PL0.'),
         client_token: z.string().optional().describe('Idempotency check. For more information, see How to Ensure Idempotency.'),
       }),
+      inject: { region_id },
       execute: async (options) => {
         try {
           const result = await platform.createAliyunSupabaseProject(options);
@@ -206,12 +232,13 @@ export async function getAliyunTools({ platform, readOnly }: AliyunToolsOptions)
       }
     }),
 
-    delete_supabase_project: tool({
+    delete_supabase_project: injectableTool({
       description: 'Delete a Supabase project on Aliyun platform.',
       parameters: z.object({
         project_id: z.string().describe('Supabase project ID. You can log in to the console Supabase page to get the workspace ID.'),
         region_id: z.string().optional().describe('The region ID where the instance is located.'),
       }),
+      inject: { project_id, region_id },
       execute: async (options) => {
         try {
           const result = await platform.deleteAliyunSupabaseProject(options);
@@ -245,11 +272,12 @@ export async function getAliyunTools({ platform, readOnly }: AliyunToolsOptions)
       }
     }),
 
-    describe_rds_vpcs: tool({
+    describe_rds_vpcs: injectableTool({
       description: 'Describe available VPCs in Aliyun for Supabase project deployment',
       parameters: z.object({
         region_id: z.string().optional().describe('Region ID. You can call the DescribeRegions API to view available region IDs.'),
       }),
+      inject: { region_id },
       execute: async (options) => {
         try {
           const result = await platform.describeRdsVpcs(options);
@@ -265,13 +293,14 @@ export async function getAliyunTools({ platform, readOnly }: AliyunToolsOptions)
       }
     }),
 
-    describe_rds_vswitches: tool({
+    describe_rds_vswitches: injectableTool({
       description: 'Describe available vSwitches in Aliyun for Supabase project deployment',
       parameters: z.object({
         region_id: z.string().optional().describe('Region ID. You can call the DescribeRegions API to view available region IDs.'),
         zone_id: z.string().describe('Zone ID. Must be consistent with the zone where the Supabase instance will be deployed.'),
         vpc_id: z.string().describe('VPC ID. The VPC where the vSwitches are located.'),
       }),
+      inject: { region_id },
       execute: async (options) => {
         try {
           const result = await platform.describeRdsVSwitches(options);
