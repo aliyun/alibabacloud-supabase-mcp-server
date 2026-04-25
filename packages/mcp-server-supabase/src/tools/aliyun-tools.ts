@@ -1,5 +1,6 @@
 import type { SupabasePlatform } from '../platform/types.js';
 import { type Tool, tool } from '@supabase/mcp-utils';
+import { readFileSync } from 'node:fs';
 import { z } from 'zod';
 import { exec } from 'child_process';
 import { injectableTool } from './util.js';
@@ -431,6 +432,127 @@ export async function getAliyunTools({
             };
           }
 
+        } catch (error) {
+          const message = error instanceof Error ? error.message : 'Unknown error occurred';
+          console.error(`Debug - Error: ${message}`);
+          return {
+            content: [{ type: 'text', text: `Error: ${message}` }]
+          };
+        }
+      }
+    }),
+
+    execute_sql_file: tool({
+      description: 'Executes SQL from a local file. Use this instead of execute_sql for large SQL files (e.g. database functions over 5KB) to avoid MCP transport size limits. Reads the file from disk and runs it against the Supabase project database.',
+      parameters: z.object({
+        url: z.string().describe('PublicConnectUrl for the Supabase project'),
+        api_key: z.string().describe('serviceRoleKey for authentication'),
+        file_path: z.string().describe('Absolute path to the SQL file on the local filesystem')
+      }),
+      execute: async ({ url, api_key, file_path }) => {
+        let sql: string;
+        try {
+          sql = readFileSync(file_path, 'utf-8');
+        } catch (err) {
+          return {
+            content: [{ type: 'text', text: `Error: Failed to read SQL file at ${file_path}: ${err instanceof Error ? err.message : String(err)}` }]
+          };
+        }
+
+        // Check for DDL operations in read-only mode
+        if (readOnly) {
+          const upperSql = sql.toUpperCase().trim();
+          const isWriteOperation = WRITE_KEYWORDS.some(keyword => {
+            const escapedKeyword = escapeRegExp(keyword);
+            const regex = new RegExp(`\\b${escapedKeyword}\\b`, 'i');
+            return regex.test(upperSql);
+          });
+
+          if (isWriteOperation) {
+            const matchedKeyword = WRITE_KEYWORDS.find(k => {
+              const escaped = escapeRegExp(k);
+              return new RegExp(`\\b${escaped}\\b`, 'i').test(upperSql);
+            });
+            return {
+              content: [{ type: 'text', text: `Error: Cannot execute write operation in read-only mode. Detected write keyword: ${matchedKeyword}` }]
+            };
+          }
+
+          const hasTransaction = /BEGIN|START\s+TRANSACTION/i.test(sql);
+          if (hasTransaction) {
+            sql = sql.replace(/BEGIN/i, 'BEGIN;\nSET LOCAL transaction_read_only = on;');
+          } else {
+            sql = `BEGIN;\nSET LOCAL transaction_read_only = on;\n${sql}\nROLLBACK;`;
+          }
+        }
+
+        try {
+          // 首先尝试使用 TypeScript 接口 (fetch)
+          try {
+            console.error('Debug - Attempting to execute SQL file via TypeScript interface');
+            const result = await platform.executeSqlViaUrl({ url, api_key, sql });
+            return {
+              content: [{
+                type: 'text',
+                text: JSON.stringify(result, null, 2)
+              }]
+            };
+          } catch (tsError) {
+            console.error(`Debug - TypeScript interface failed: ${tsError instanceof Error ? tsError.message : 'Unknown error'}`);
+            console.error('Debug - Falling back to curl command');
+
+            // 如果 TypeScript 接口失败，回退到 curl 命令
+            let requestUrl = url;
+            if (!requestUrl.startsWith('http://') && !requestUrl.startsWith('https://')) {
+              requestUrl = "http://" + requestUrl;
+            }
+            requestUrl = requestUrl + "/pg/query";
+
+            const requestBody = { query: sql };
+            const jsonData = JSON.stringify(requestBody);
+
+            const command = [
+              'curl',
+              '-X POST',
+              escapeShellArg(requestUrl),
+              '-H', escapeShellArg(`apikey: ${api_key}`),
+              '-H', escapeShellArg('Content-Type: application/json'),
+              '-d', escapeShellArg(jsonData)
+            ].join(' ');
+
+            console.error(`Debug - Executing curl command: ${command}`);
+
+            const result = await new Promise((resolve, reject) => {
+              exec(command, (error, stdout, stderr) => {
+                if (error) {
+                  console.error(`Debug - exec error: ${error.message}`);
+                  console.error(`Debug - stderr: ${stderr}`);
+                  reject(new Error(`Command failed: ${stderr || error.message}`));
+                  return;
+                }
+                if (stderr) {
+                  console.warn(`Debug - stderr output: ${stderr}`);
+                }
+
+                try {
+                  const parsedOutput = JSON.parse(stdout);
+                  resolve(parsedOutput);
+                } catch (parseError) {
+                  const parseErrorMessage = parseError instanceof Error ? parseError.message : String(parseError);
+                  console.error(`Debug - JSON parse error: ${parseErrorMessage}`);
+                  console.error(`Debug - stdout received: ${stdout}`);
+                  reject(new Error(`Failed to parse curl output as JSON: ${stdout}`));
+                }
+              });
+            });
+
+            return {
+              content: [{
+                type: 'text',
+                text: JSON.stringify(result, null, 2)
+              }]
+            };
+          }
         } catch (error) {
           const message = error instanceof Error ? error.message : 'Unknown error occurred';
           console.error(`Debug - Error: ${message}`);

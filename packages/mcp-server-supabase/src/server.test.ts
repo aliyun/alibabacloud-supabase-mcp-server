@@ -5,6 +5,9 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 import { StreamTransport } from '@supabase/mcp-utils';
 import { codeBlock, stripIndent } from 'common-tags';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join as pathJoin } from 'node:path';
 import { setupServer } from 'msw/node';
 import { beforeEach, describe, expect, test } from 'vitest';
 import {
@@ -109,7 +112,17 @@ async function setup(options: SetupOptions = {}) {
     return result;
   }
 
-  return { client, clientTransport, callTool, server, serverTransport };
+  const tmpDir = await mkdtemp(pathJoin(tmpdir(), 'mcp-test-'));
+
+  return {
+    client,
+    clientTransport,
+    callTool,
+    server,
+    serverTransport,
+    tmpDir,
+    cleanup: () => rm(tmpDir, { recursive: true, force: true }),
+  };
 }
 
 describe('tools', () => {
@@ -750,6 +763,53 @@ describe('tools', () => {
 
     await expect(resultPromise).rejects.toThrow(
       'permission denied for schema public'
+    );
+  });
+
+  test('execute_sql_file reads SQL from disk and executes it', async () => {
+    const { callTool, tmpDir } = await setup();
+
+    const org = await createOrganization({
+      name: 'My Org',
+      plan: 'free',
+      allowed_release_channels: ['ga'],
+    });
+
+    const project = await createProject({
+      name: 'Project 1',
+      region: 'us-east-1',
+      organization_id: org.id,
+    });
+    project.status = 'ACTIVE_HEALTHY';
+
+    const filePath = pathJoin(tmpDir, 'test_query.sql');
+    await writeFile(filePath, 'select 1+1 as sum');
+
+    const result = await callTool({
+      name: 'execute_sql_file',
+      arguments: {
+        project_id: project.id,
+        file_path: filePath,
+      },
+    });
+
+    expect(result.rows_affected).toBe(1);
+    expect(result.data).toEqual([{ sum: 2 }]);
+  });
+
+  test('execute_sql_file returns error for missing file', async () => {
+    const { callTool } = await setup();
+
+    const resultPromise = callTool({
+      name: 'execute_sql_file',
+      arguments: {
+        project_id: 'test-project',
+        file_path: '/nonexistent/path/query.sql',
+      },
+    });
+
+    await expect(resultPromise).rejects.toThrow(
+      'Failed to read SQL file'
     );
   });
 
@@ -2131,6 +2191,7 @@ describe('feature groups', () => {
       'list_migrations',
       'apply_migration',
       'execute_sql',
+      'execute_sql_file',
     ]);
   });
 

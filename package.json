@@ -10,6 +10,7 @@
     "format:check": "biome check ."
   },
   "devDependencies": {
+    "@aliyun-supabase/mcp-server-supabase": "^1.5.2",
     "@biomejs/biome": "1.9.4",
     "supabase": "^2.1.1",
     "vite": "^7.0.6"
