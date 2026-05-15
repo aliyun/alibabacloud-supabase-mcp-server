@@ -8,7 +8,7 @@ export default defineConfig([
     outDir: 'dist',
     sourcemap: true,
     dts: true,
-    minify: true, // 建议在调试期间设为 false，更容易看懂打包后的代码
+    minify: false, // 关闭 minify：避免 esbuild 把 logFetchFailure 等纯 console.error 函数体被 tree-shake（包内 sideEffects:false 会放大该优化）
     splitting: false, // 禁用代码分割以避免相对路径问题
     loader: {
       '.sql': 'text',

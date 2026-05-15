@@ -1094,14 +1094,15 @@ export function createSupabaseApiPlatform(
         });
 
         if (!response.ok) {
-          throw new Error(`HTTP error! status: ${response.status}`);
+          const errorText = await response.text();
+          throw new Error(`HTTP error! status: ${response.status}, message: ${errorText}`);
         }
 
         const result = await response.json();
         return result as T[];
       } catch (error: any) {
         console.error('Failed to execute SQL via URL:', error.message);
-        throw new Error(`Failed to execute SQL: ${error.message}`);
+        throw new Error(`Failed to execute SQL: ${error.message}`, { cause: (error as { cause?: unknown }).cause ?? error });
       }
     },
 
@@ -1131,14 +1132,15 @@ export function createSupabaseApiPlatform(
         });
 
         if (!response.ok) {
-          throw new Error(`HTTP error! status: ${response.status}`);
+          const errorText = await response.text();
+          throw new Error(`HTTP error! status: ${response.status}, message: ${errorText}`);
         }
 
         const result = await response.json();
         return result as Array<{ table_name: string }>;
       } catch (error: any) {
         console.error('Failed to list tables via URL:', error.message);
-        throw new Error(`Failed to list tables: ${error.message}`);
+        throw new Error(`Failed to list tables: ${error.message}`, { cause: (error as { cause?: unknown }).cause ?? error });
       }
     },
 
@@ -1230,7 +1232,7 @@ export function createSupabaseApiPlatform(
         }
       } catch (error: any) {
         console.error('Failed to list auth users via URL:', error.message);
-        throw new Error(`Failed to list auth users: ${error.message}`);
+        throw new Error(`Failed to list auth users: ${error.message}`, { cause: (error as { cause?: unknown }).cause ?? error });
       }
     },
 
@@ -1290,7 +1292,7 @@ export function createSupabaseApiPlatform(
         return result;
       } catch (error: any) {
         console.error('Failed to get auth user via URL:', error.message);
-        throw new Error(`Failed to get auth user: ${error.message}`);
+        throw new Error(`Failed to get auth user: ${error.message}`, { cause: (error as { cause?: unknown }).cause ?? error });
       }
     },
 
@@ -1369,7 +1371,7 @@ export function createSupabaseApiPlatform(
         return result;
       } catch (error: any) {
         console.error('Failed to create auth user via URL:', error.message);
-        throw new Error(`Failed to create auth user: ${error.message}`);
+        throw new Error(`Failed to create auth user: ${error.message}`, { cause: (error as { cause?: unknown }).cause ?? error });
       }
     },
 
@@ -1403,7 +1405,7 @@ export function createSupabaseApiPlatform(
         }
       } catch (error: any) {
         console.error('Failed to delete auth user via URL:', error.message);
-        throw new Error(`Failed to delete auth user: ${error.message}`);
+        throw new Error(`Failed to delete auth user: ${error.message}`, { cause: (error as { cause?: unknown }).cause ?? error });
       }
     },
 
@@ -1483,7 +1485,7 @@ export function createSupabaseApiPlatform(
         return result;
       } catch (error: any) {
         console.error('Failed to update auth user via URL:', error.message);
-        throw new Error(`Failed to update auth user: ${error.message}`);
+        throw new Error(`Failed to update auth user: ${error.message}`, { cause: (error as { cause?: unknown }).cause ?? error });
       }
     },
 
@@ -1520,7 +1522,7 @@ export function createSupabaseApiPlatform(
         return result;
       } catch (error: any) {
         console.error('Failed to list storage buckets via URL:', error.message);
-        throw new Error(`Failed to list storage buckets: ${error.message}`);
+        throw new Error(`Failed to list storage buckets: ${error.message}`, { cause: (error as { cause?: unknown }).cause ?? error });
       }
     },
 
@@ -1570,7 +1572,7 @@ export function createSupabaseApiPlatform(
         return result;
       } catch (error: any) {
         console.error('Failed to create storage bucket via URL:', error.message);
-        throw new Error(`Failed to create storage bucket: ${error.message}`);
+        throw new Error(`Failed to create storage bucket: ${error.message}`, { cause: (error as { cause?: unknown }).cause ?? error });
       }
     },
 
@@ -1604,7 +1606,7 @@ export function createSupabaseApiPlatform(
         }
       } catch (error: any) {
         console.error('Failed to delete storage bucket via URL:', error.message);
-        throw new Error(`Failed to delete storage bucket: ${error.message}`);
+        throw new Error(`Failed to delete storage bucket: ${error.message}`, { cause: (error as { cause?: unknown }).cause ?? error });
       }
     },
 
@@ -1635,27 +1637,29 @@ export function createSupabaseApiPlatform(
         requestUrl = "https://" + requestUrl;
       }
       requestUrl = `${requestUrl}/storage/v1/object/list/${encodeURIComponent(bucket_name)}`;
-      
-      // 构建查询参数
-      const queryParams = new URLSearchParams();
-      if (path !== undefined) queryParams.append('prefix', path);
-      if (limit !== undefined) queryParams.append('limit', limit.toString());
-      if (offset !== undefined) queryParams.append('offset', offset.toString());
-      if (sort_by?.column) queryParams.append('sortBy', sort_by.column);
-      if (sort_by?.order) queryParams.append('order', sort_by.order);
-      
-      if (queryParams.toString()) {
-        requestUrl = requestUrl + "?" + queryParams.toString();
+
+      // Supabase Storage v1 list 接口要求 POST + JSON body
+      const body: Record<string, unknown> = {
+        prefix: path ?? '',
+        limit: limit ?? 100,
+        offset: offset ?? 0,
+      };
+      if (sort_by?.column) {
+        body.sortBy = {
+          column: sort_by.column,
+          order: sort_by.order ?? 'asc',
+        };
       }
-      
+
       try {
         const response = await fetch(requestUrl, {
-          method: 'GET',
+          method: 'POST',
           headers: {
             'apikey': api_key,
             'Authorization': `Bearer ${api_key}`,
             'Content-Type': 'application/json',
           },
+          body: JSON.stringify(body),
         });
 
         if (!response.ok) {
@@ -1667,7 +1671,7 @@ export function createSupabaseApiPlatform(
         return result;
       } catch (error: any) {
         console.error('Failed to list storage files via URL:', error.message);
-        throw new Error(`Failed to list storage files: ${error.message}`);
+        throw new Error(`Failed to list storage files: ${error.message}`, { cause: (error as { cause?: unknown }).cause ?? error });
       }
     },
 
@@ -1733,7 +1737,7 @@ export function createSupabaseApiPlatform(
         return result;
       } catch (error: any) {
         console.error('Failed to upload storage file via URL:', error.message);
-        throw new Error(`Failed to upload storage file: ${error.message}`);
+        throw new Error(`Failed to upload storage file: ${error.message}`, { cause: (error as { cause?: unknown }).cause ?? error });
       }
     },
 
@@ -1770,7 +1774,7 @@ export function createSupabaseApiPlatform(
         return blob;
       } catch (error: any) {
         console.error('Failed to download storage file via URL:', error.message);
-        throw new Error(`Failed to download storage file: ${error.message}`);
+        throw new Error(`Failed to download storage file: ${error.message}`, { cause: (error as { cause?: unknown }).cause ?? error });
       }
     },
 
@@ -1821,6 +1825,33 @@ export function createSupabaseApiPlatform(
                 name: path,
               };
             } catch (error: any) {
+              // 单个 path 的 fetch 失败：内层吞掉以聚合返回，但仍输出详细日志
+              console.error(`=== Fetch failure in delete_storage_file [${path}] ===`);
+              console.error(`  name: ${error?.name ?? ''}`);
+              console.error(`  message: ${error?.message ?? ''}`);
+              const cause = (error as { cause?: unknown }).cause;
+              if (cause && typeof cause === 'object') {
+                const c = cause as Record<string, unknown>;
+                console.error(`  cause.name: ${String(c.name ?? '')}`);
+                console.error(`  cause.message: ${String(c.message ?? '')}`);
+                console.error(`  cause.code: ${String(c.code ?? '')}`);
+                console.error(`  cause.errno: ${String(c.errno ?? '')}`);
+                console.error(`  cause.syscall: ${String(c.syscall ?? '')}`);
+                console.error(`  cause.hostname: ${String(c.hostname ?? '')}`);
+                console.error(`  cause.address: ${String(c.address ?? '')}`);
+                console.error(`  cause.port: ${String(c.port ?? '')}`);
+                if (c.stack) console.error(`  cause.stack: ${String(c.stack)}`);
+              }
+              if (error?.stack) console.error(`  stack: ${error.stack}`);
+              console.error(`  env.HTTP_PROXY: ${process.env.HTTP_PROXY ?? '(unset)'}`);
+              console.error(`  env.HTTPS_PROXY: ${process.env.HTTPS_PROXY ?? '(unset)'}`);
+              console.error(`  env.ALL_PROXY: ${process.env.ALL_PROXY ?? '(unset)'}`);
+              console.error(`  env.NO_PROXY: ${process.env.NO_PROXY ?? '(unset)'}`);
+              console.error(`  env.http_proxy: ${process.env.http_proxy ?? '(unset)'}`);
+              console.error(`  env.https_proxy: ${process.env.https_proxy ?? '(unset)'}`);
+              console.error(`  node.version: ${process.version}`);
+              console.error(`  platform: ${process.platform}`);
+              console.error(`=== End fetch failure (delete_storage_file [${path}]) ===`);
               return {
                 name: path,
                 message: `Error: ${error.message}`,
@@ -1832,7 +1863,7 @@ export function createSupabaseApiPlatform(
         return results;
       } catch (error: any) {
         console.error('Failed to delete storage files via URL:', error.message);
-        throw new Error(`Failed to delete storage files: ${error.message}`);
+        throw new Error(`Failed to delete storage files: ${error.message}`, { cause: (error as { cause?: unknown }).cause ?? error });
       }
     },
 

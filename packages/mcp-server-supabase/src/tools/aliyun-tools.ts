@@ -2,7 +2,6 @@ import type { SupabasePlatform } from '../platform/types.js';
 import { type Tool, tool } from '@supabase/mcp-utils';
 import { readFileSync } from 'node:fs';
 import { z } from 'zod';
-import { exec } from 'child_process';
 import { injectableTool } from './util.js';
 
 export type AliyunToolsOptions = {
@@ -21,22 +20,49 @@ export type AliyunToolsOptions = {
 };
 
 /**
- * 安全地转义一个字符串，以便在 shell 命令中作为单个参数使用。
- * @param {string} arg 要转义的参数。
- * @returns {string} 转义后的参数，已用单引号包裹。
- */
-const escapeShellArg = (arg: string): string => {
-  // 1. 将字符串中的所有单引号 ' 替换为 '\''
-  //    这表示：结束当前的单引号字符串，插入一个转义的单引号，然后开始一个新的单引号字符串。
-  // 2. 用单引号将整个结果包裹起来。
-  return `'${arg.replace(/'/g, "'\\''")}'`;
-};
-
-/**
  * 对正则表达式中的特殊字符进行转义，防止正则注入。
  */
 const escapeRegExp = (str: string): string => {
   return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+};
+
+/**
+ * 打印 fetch 失败的详细信息，便于排查网络层问题
+ * （DNS、TLS、连接超时、代理、证书等）。
+ */
+const logFetchFailure = (err: unknown, context: string): void => {
+  console.error(`=== Fetch failure in ${context} ===`);
+  if (err instanceof Error) {
+    console.error(`  name: ${err.name}`);
+    console.error(`  message: ${err.message}`);
+    const cause = (err as { cause?: unknown }).cause;
+    if (cause && typeof cause === 'object') {
+      const c = cause as Record<string, unknown>;
+      console.error(`  cause.name: ${String(c.name ?? '')}`);
+      console.error(`  cause.message: ${String(c.message ?? '')}`);
+      console.error(`  cause.code: ${String(c.code ?? '')}`);
+      console.error(`  cause.errno: ${String(c.errno ?? '')}`);
+      console.error(`  cause.syscall: ${String(c.syscall ?? '')}`);
+      console.error(`  cause.hostname: ${String(c.hostname ?? '')}`);
+      console.error(`  cause.address: ${String(c.address ?? '')}`);
+      console.error(`  cause.port: ${String(c.port ?? '')}`);
+      if (c.stack) console.error(`  cause.stack: ${String(c.stack)}`);
+    } else if (cause !== undefined) {
+      console.error(`  cause: ${String(cause)}`);
+    }
+    if (err.stack) console.error(`  stack: ${err.stack}`);
+  } else {
+    console.error(`  raw: ${String(err)}`);
+  }
+  console.error(`  env.HTTP_PROXY: ${process.env.HTTP_PROXY ?? '(unset)'}`);
+  console.error(`  env.HTTPS_PROXY: ${process.env.HTTPS_PROXY ?? '(unset)'}`);
+  console.error(`  env.ALL_PROXY: ${process.env.ALL_PROXY ?? '(unset)'}`);
+  console.error(`  env.NO_PROXY: ${process.env.NO_PROXY ?? '(unset)'}`);
+  console.error(`  env.http_proxy: ${process.env.http_proxy ?? '(unset)'}`);
+  console.error(`  env.https_proxy: ${process.env.https_proxy ?? '(unset)'}`);
+  console.error(`  node.version: ${process.version}`);
+  console.error(`  platform: ${process.platform}`);
+  console.error(`=== End fetch failure (${context}) ===`);
 };
 
 export async function getAliyunTools({ 
@@ -318,7 +344,7 @@ export async function getAliyunTools({
     }),
 
     execute_sql: tool({
-      description: 'Executes custom SQL queries on a Supabase project database. First tries to use TypeScript interface, falls back to curl command if needed. Requires PublicConnectUrl and serviceRoleKey.',
+      description: 'Executes custom SQL queries on a Supabase project database via the TypeScript fetch interface. Requires PublicConnectUrl and serviceRoleKey.',
       parameters: z.object({
         url: z.string().describe('PublicConnectUrl for the Supabase project'),
         api_key: z.string().describe('serviceRoleKey for authentication'),
@@ -355,86 +381,17 @@ export async function getAliyunTools({
         }
         
         try {
-          // 首先尝试使用 TypeScript 接口 (fetch)
-          try {
-            console.error('Debug - Attempting to execute SQL via TypeScript interface');
-            const result = await platform.executeSqlViaUrl({ url, api_key, sql });
-            return {
-              content: [{
-                type: 'text',
-                text: JSON.stringify(result, null, 2)
-              }]
-            };
-          } catch (tsError) {
-            console.error(`Debug - TypeScript interface failed: ${tsError instanceof Error ? tsError.message : 'Unknown error'}`);
-            console.error('Debug - Falling back to curl command');
-            
-            // 如果 TypeScript 接口失败，回退到 curl 命令
-            // 1. 准备和格式化参数
-            let requestUrl = url;
-            if (!requestUrl.startsWith('http://') && !requestUrl.startsWith('https://')) {
-              requestUrl = "http://" + requestUrl;
-            }
-            requestUrl = requestUrl + "/pg/query";
-            
-            // 构建请求体
-            const requestBody = { query: sql };
-            const jsonData = JSON.stringify(requestBody);
-
-            // 2. 安全地构建 curl 命令
-            //    使用 escapeShellArg 对每个动态部分进行转义，防止命令注入
-            const command = [
-              'curl',
-              '-X POST',
-              escapeShellArg(requestUrl),
-              '-H', escapeShellArg(`apikey: ${api_key}`),
-              '-H', escapeShellArg('Content-Type: application/json'),
-              '-d', escapeShellArg(jsonData)
-            ].join(' ');
-
-            console.error(`Debug - Executing curl command: ${command}`);
-
-            // 3. 执行命令并等待结果
-            const result = await new Promise((resolve, reject) => {
-              exec(command, (error, stdout, stderr) => {
-                if (error) {
-                  // 如果命令执行失败（例如 curl 不存在，或返回非 0 退出码）
-                  console.error(`Debug - exec error: ${error.message}`);
-                  console.error(`Debug - stderr: ${stderr}`);
-                  reject(new Error(`Command failed: ${stderr || error.message}`));
-                  return;
-                }
-                if (stderr) {
-                  // curl 可能会将进度信息等输出到 stderr，但我们仍然可以继续
-                  console.warn(`Debug - stderr output: ${stderr}`);
-                }
-                
-                try {
-                  // 尝试解析 stdout 输出的 JSON
-                  const parsedOutput = JSON.parse(stdout);
-                  resolve(parsedOutput);
-                } catch (parseError) {
-                  // 如果 stdout 不是有效的 JSON
-                  const parseErrorMessage = parseError instanceof Error ? parseError.message : String(parseError);
-                  console.error(`Debug - JSON parse error: ${parseErrorMessage}`);
-                  console.error(`Debug - stdout received: ${stdout}`);
-                  reject(new Error(`Failed to parse curl output as JSON: ${stdout}`));
-                }
-              });
-            });
-
-            // 4. 返回成功的结果
-            return {
-              content: [{
-                type: 'text',
-                text: JSON.stringify(result, null, 2)
-              }]
-            };
-          }
-
+          console.error('Debug - Attempting to execute SQL via TypeScript interface');
+          const result = await platform.executeSqlViaUrl({ url, api_key, sql });
+          return {
+            content: [{
+              type: 'text',
+              text: JSON.stringify(result, null, 2)
+            }]
+          };
         } catch (error) {
+          logFetchFailure(error, 'execute_sql');
           const message = error instanceof Error ? error.message : 'Unknown error occurred';
-          console.error(`Debug - Error: ${message}`);
           return {
             content: [{ type: 'text', text: `Error: ${message}` }]
           };
@@ -487,75 +444,17 @@ export async function getAliyunTools({
         }
 
         try {
-          // 首先尝试使用 TypeScript 接口 (fetch)
-          try {
-            console.error('Debug - Attempting to execute SQL file via TypeScript interface');
-            const result = await platform.executeSqlViaUrl({ url, api_key, sql });
-            return {
-              content: [{
-                type: 'text',
-                text: JSON.stringify(result, null, 2)
-              }]
-            };
-          } catch (tsError) {
-            console.error(`Debug - TypeScript interface failed: ${tsError instanceof Error ? tsError.message : 'Unknown error'}`);
-            console.error('Debug - Falling back to curl command');
-
-            // 如果 TypeScript 接口失败，回退到 curl 命令
-            let requestUrl = url;
-            if (!requestUrl.startsWith('http://') && !requestUrl.startsWith('https://')) {
-              requestUrl = "http://" + requestUrl;
-            }
-            requestUrl = requestUrl + "/pg/query";
-
-            const requestBody = { query: sql };
-            const jsonData = JSON.stringify(requestBody);
-
-            const command = [
-              'curl',
-              '-X POST',
-              escapeShellArg(requestUrl),
-              '-H', escapeShellArg(`apikey: ${api_key}`),
-              '-H', escapeShellArg('Content-Type: application/json'),
-              '-d', escapeShellArg(jsonData)
-            ].join(' ');
-
-            console.error(`Debug - Executing curl command: ${command}`);
-
-            const result = await new Promise((resolve, reject) => {
-              exec(command, (error, stdout, stderr) => {
-                if (error) {
-                  console.error(`Debug - exec error: ${error.message}`);
-                  console.error(`Debug - stderr: ${stderr}`);
-                  reject(new Error(`Command failed: ${stderr || error.message}`));
-                  return;
-                }
-                if (stderr) {
-                  console.warn(`Debug - stderr output: ${stderr}`);
-                }
-
-                try {
-                  const parsedOutput = JSON.parse(stdout);
-                  resolve(parsedOutput);
-                } catch (parseError) {
-                  const parseErrorMessage = parseError instanceof Error ? parseError.message : String(parseError);
-                  console.error(`Debug - JSON parse error: ${parseErrorMessage}`);
-                  console.error(`Debug - stdout received: ${stdout}`);
-                  reject(new Error(`Failed to parse curl output as JSON: ${stdout}`));
-                }
-              });
-            });
-
-            return {
-              content: [{
-                type: 'text',
-                text: JSON.stringify(result, null, 2)
-              }]
-            };
-          }
+          console.error('Debug - Attempting to execute SQL file via TypeScript interface');
+          const result = await platform.executeSqlViaUrl({ url, api_key, sql });
+          return {
+            content: [{
+              type: 'text',
+              text: JSON.stringify(result, null, 2)
+            }]
+          };
         } catch (error) {
+          logFetchFailure(error, 'execute_sql_file');
           const message = error instanceof Error ? error.message : 'Unknown error occurred';
-          console.error(`Debug - Error: ${message}`);
           return {
             content: [{ type: 'text', text: `Error: ${message}` }]
           };
@@ -564,7 +463,7 @@ export async function getAliyunTools({
     }),
 
     list_table: tool({
-      description: 'Lists all tables in specified schemas of a Supabase project database. By default lists all non-system tables, but can filter by schema. First tries to use TypeScript interface, falls back to curl command if needed. Requires the project\'s PublicConnectUrl as url and serviceRoleKey as api_key obtained from other tools.',
+      description: 'Lists all tables in specified schemas of a Supabase project database. By default lists all non-system tables, but can filter by schema. Uses the TypeScript fetch interface. Requires the project\'s PublicConnectUrl as url and serviceRoleKey as api_key obtained from other tools.',
       parameters: z.object({
         url: z.string().describe('PublicConnectUrl for the Supabase project'),
         api_key: z.string().describe('serviceRoleKey for authentication'),
@@ -590,74 +489,17 @@ export async function getAliyunTools({
           }
 
           // 使用平台接口执行 SQL
-          try {
-            const result = await platform.executeSqlViaUrl({ url, api_key, sql });
-            return {
-              content: [{
-                type: 'text',
-                text: JSON.stringify(result, null, 2)
-              }]
-            };
-          } catch (tsError) {
-            console.error(`Debug - TypeScript interface failed: ${tsError instanceof Error ? tsError.message : 'Unknown error'}`);
-            console.error('Debug - Falling back to curl command');
-            
-            // 如果 TypeScript 接口失败，回退到 curl 命令
-            let requestUrl = url;
-            if (!requestUrl.startsWith('http://') && !requestUrl.startsWith('https://')) {
-              requestUrl = "https://" + requestUrl;
-            }
-            requestUrl = requestUrl + "/pg/query";
-            
-            const requestBody = { query: sql };
-            const jsonData = JSON.stringify(requestBody);
-
-            const command = [
-              'curl',
-              '-X POST',
-              escapeShellArg(requestUrl),
-              '-H', escapeShellArg(`apikey: ${api_key}`),
-              '-H', escapeShellArg('Content-Type: application/json'),
-              '-d', escapeShellArg(jsonData)
-            ].join(' ');
-
-            console.error(`Debug list_table - Executing curl command: ${command}`);
-
-            const result = await new Promise((resolve, reject) => {
-              exec(command, (error, stdout, stderr) => {
-                if (error) {
-                  console.error(`Debug - exec error: ${error.message}`);
-                  console.error(`Debug - stderr: ${stderr}`);
-                  reject(new Error(`Command failed: ${stderr || error.message}`));
-                  return;
-                }
-                if (stderr) {
-                  console.warn(`Debug - stderr output: ${stderr}`);
-                }
-                
-                try {
-                  const parsedOutput = JSON.parse(stdout);
-                  resolve(parsedOutput);
-                } catch (parseError) {
-                  const parseErrorMessage = parseError instanceof Error ? parseError.message : String(parseError);
-                  console.error(`Debug - JSON parse error: ${parseErrorMessage}`);
-                  console.error(`Debug - stdout received: ${stdout}`);
-                  reject(new Error(`Failed to parse curl output as JSON: ${stdout}`));
-                }
-              });
-            });
-
-            return {
-              content: [{
-                type: 'text',
-                text: JSON.stringify(result, null, 2)
-              }]
-            };
-          }
+          const result = await platform.executeSqlViaUrl({ url, api_key, sql });
+          return {
+            content: [{
+              type: 'text',
+              text: JSON.stringify(result, null, 2)
+            }]
+          };
 
         } catch (error) {
+          logFetchFailure(error, 'list_table');
           const message = error instanceof Error ? error.message : 'Unknown error occurred';
-          console.error(`Debug - Error: ${message}`);
           return {
             content: [{ type: 'text', text: `Error: ${message}` }]
           };
@@ -692,73 +534,16 @@ export async function getAliyunTools({
           `;
 
           // 使用平台接口执行 SQL
-          try {
-            const result = await platform.executeSqlViaUrl({ url, api_key, sql });
-            return {
-              content: [{
-                type: 'text',
-                text: JSON.stringify(result, null, 2)
-              }]
-            };
-          } catch (tsError) {
-            console.error(`Debug - TypeScript interface failed: ${tsError instanceof Error ? tsError.message : 'Unknown error'}`);
-            console.error('Debug - Falling back to curl command');
-            
-            // 如果 TypeScript 接口失败，回退到 curl 命令
-            let requestUrl = url;
-            if (!requestUrl.startsWith('http://') && !requestUrl.startsWith('https://')) {
-              requestUrl = "https://" + requestUrl;
-            }
-            requestUrl = requestUrl + "/pg/query";
-            
-            const requestBody = { query: sql };
-            const jsonData = JSON.stringify(requestBody);
-
-            const command = [
-              'curl',
-              '-X POST',
-              escapeShellArg(requestUrl),
-              '-H', escapeShellArg(`apikey: ${api_key}`),
-              '-H', escapeShellArg('Content-Type: application/json'),
-              '-d', escapeShellArg(jsonData)
-            ].join(' ');
-
-            console.error(`Debug list_columns - Executing curl command: ${command}`);
-
-            const result = await new Promise((resolve, reject) => {
-              exec(command, (error, stdout, stderr) => {
-                if (error) {
-                  console.error(`Debug - exec error: ${error.message}`);
-                  console.error(`Debug - stderr: ${stderr}`);
-                  reject(new Error(`Command failed: ${stderr || error.message}`));
-                  return;
-                }
-                if (stderr) {
-                  console.warn(`Debug - stderr output: ${stderr}`);
-                }
-                
-                try {
-                  const parsedOutput = JSON.parse(stdout);
-                  resolve(parsedOutput);
-                } catch (parseError) {
-                  const parseErrorMessage = parseError instanceof Error ? parseError.message : String(parseError);
-                  console.error(`Debug - JSON parse error: ${parseErrorMessage}`);
-                  console.error(`Debug - stdout received: ${stdout}`);
-                  reject(new Error(`Failed to parse curl output as JSON: ${stdout}`));
-                }
-              });
-            });
-
-            return {
-              content: [{
-                type: 'text',
-                text: JSON.stringify(result, null, 2)
-              }]
-            };
-          }
+          const result = await platform.executeSqlViaUrl({ url, api_key, sql });
+          return {
+            content: [{
+              type: 'text',
+              text: JSON.stringify(result, null, 2)
+            }]
+          };
         } catch (error) {
+          logFetchFailure(error, 'list_columns');
           const message = error instanceof Error ? error.message : 'Unknown error occurred';
-          console.error(`Debug - Error: ${message}`);
           return {
             content: [{ type: 'text', text: `Error: ${message}` }]
           };
@@ -788,73 +573,16 @@ export async function getAliyunTools({
           `;
 
           // 使用平台接口执行 SQL
-          try {
-            const result = await platform.executeSqlViaUrl({ url, api_key, sql });
-            return {
-              content: [{
-                type: 'text',
-                text: JSON.stringify(result, null, 2)
-              }]
-            };
-          } catch (tsError) {
-            console.error(`Debug - TypeScript interface failed: ${tsError instanceof Error ? tsError.message : 'Unknown error'}`);
-            console.error('Debug - Falling back to curl command');
-            
-            // 如果 TypeScript 接口失败，回退到 curl 命令
-            let requestUrl = url;
-            if (!requestUrl.startsWith('http://') && !requestUrl.startsWith('https://')) {
-              requestUrl = "https://" + requestUrl;
-            }
-            requestUrl = requestUrl + "/pg/query";
-            
-            const requestBody = { query: sql };
-            const jsonData = JSON.stringify(requestBody);
-
-            const command = [
-              'curl',
-              '-X POST',
-              escapeShellArg(requestUrl),
-              '-H', escapeShellArg(`apikey: ${api_key}`),
-              '-H', escapeShellArg('Content-Type: application/json'),
-              '-d', escapeShellArg(jsonData)
-            ].join(' ');
-
-            console.error(`Debug list_indexes - Executing curl command: ${command}`);
-
-            const result = await new Promise((resolve, reject) => {
-              exec(command, (error, stdout, stderr) => {
-                if (error) {
-                  console.error(`Debug - exec error: ${error.message}`);
-                  console.error(`Debug - stderr: ${stderr}`);
-                  reject(new Error(`Command failed: ${stderr || error.message}`));
-                  return;
-                }
-                if (stderr) {
-                  console.warn(`Debug - stderr output: ${stderr}`);
-                }
-                
-                try {
-                  const parsedOutput = JSON.parse(stdout);
-                  resolve(parsedOutput);
-                } catch (parseError) {
-                  const parseErrorMessage = parseError instanceof Error ? parseError.message : String(parseError);
-                  console.error(`Debug - JSON parse error: ${parseErrorMessage}`);
-                  console.error(`Debug - stdout received: ${stdout}`);
-                  reject(new Error(`Failed to parse curl output as JSON: ${stdout}`));
-                }
-              });
-            });
-
-            return {
-              content: [{
-                type: 'text',
-                text: JSON.stringify(result, null, 2)
-              }]
-            };
-          }
+          const result = await platform.executeSqlViaUrl({ url, api_key, sql });
+          return {
+            content: [{
+              type: 'text',
+              text: JSON.stringify(result, null, 2)
+            }]
+          };
         } catch (error) {
+          logFetchFailure(error, 'list_indexes');
           const message = error instanceof Error ? error.message : 'Unknown error occurred';
-          console.error(`Debug - Error: ${message}`);
           return {
             content: [{ type: 'text', text: `Error: ${message}` }]
           };
@@ -883,73 +611,16 @@ export async function getAliyunTools({
           `;
 
           // 使用平台接口执行 SQL
-          try {
-            const result = await platform.executeSqlViaUrl({ url, api_key, sql });
-            return {
-              content: [{
-                type: 'text',
-                text: JSON.stringify(result, null, 2)
-              }]
-            };
-          } catch (tsError) {
-            console.error(`Debug - TypeScript interface failed: ${tsError instanceof Error ? tsError.message : 'Unknown error'}`);
-            console.error('Debug - Falling back to curl command');
-            
-            // 如果 TypeScript 接口失败，回退到 curl 命令
-            let requestUrl = url;
-            if (!requestUrl.startsWith('http://') && !requestUrl.startsWith('https://')) {
-              requestUrl = "https://" + requestUrl;
-            }
-            requestUrl = requestUrl + "/pg/query";
-            
-            const requestBody = { query: sql };
-            const jsonData = JSON.stringify(requestBody);
-
-            const command = [
-              'curl',
-              '-X POST',
-              escapeShellArg(requestUrl),
-              '-H', escapeShellArg(`apikey: ${api_key}`),
-              '-H', escapeShellArg('Content-Type: application/json'),
-              '-d', escapeShellArg(jsonData)
-            ].join(' ');
-
-            console.error(`Debug list_extensions - Executing curl command: ${command}`);
-
-            const result = await new Promise((resolve, reject) => {
-              exec(command, (error, stdout, stderr) => {
-                if (error) {
-                  console.error(`Debug - exec error: ${error.message}`);
-                  console.error(`Debug - stderr: ${stderr}`);
-                  reject(new Error(`Command failed: ${stderr || error.message}`));
-                  return;
-                }
-                if (stderr) {
-                  console.warn(`Debug - stderr output: ${stderr}`);
-                }
-                
-                try {
-                  const parsedOutput = JSON.parse(stdout);
-                  resolve(parsedOutput);
-                } catch (parseError) {
-                  const parseErrorMessage = parseError instanceof Error ? parseError.message : String(parseError);
-                  console.error(`Debug - JSON parse error: ${parseErrorMessage}`);
-                  console.error(`Debug - stdout received: ${stdout}`);
-                  reject(new Error(`Failed to parse curl output as JSON: ${stdout}`));
-                }
-              });
-            });
-
-            return {
-              content: [{
-                type: 'text',
-                text: JSON.stringify(result, null, 2)
-              }]
-            };
-          }
+          const result = await platform.executeSqlViaUrl({ url, api_key, sql });
+          return {
+            content: [{
+              type: 'text',
+              text: JSON.stringify(result, null, 2)
+            }]
+          };
         } catch (error) {
+          logFetchFailure(error, 'list_extensions');
           const message = error instanceof Error ? error.message : 'Unknown error occurred';
-          console.error(`Debug - Error: ${message}`);
           return {
             content: [{ type: 'text', text: `Error: ${message}` }]
           };
@@ -1061,7 +732,8 @@ export async function getAliyunTools({
             
             return { content };
           } catch (fetchError) {
-            // fetch 失败时，直接返回错误，不再尝试 curl
+            // fetch 失败时，记录详细网络层日志，不再尝试 curl
+            logFetchFailure(fetchError, 'deploy_edge_function');
             const errorMessage = fetchError instanceof Error ? fetchError.message : 'Unknown error occurred';
             console.error(`Debug - Fetch API failed: ${errorMessage}`);
             console.error(`Debug - Error stack:`, fetchError instanceof Error ? fetchError.stack : 'No stack trace');
@@ -1146,74 +818,28 @@ export async function getAliyunTools({
           const apiEndpoint = `${apiUrl}/api/edge-api/v1/projects/default/functions`;
 
           // 使用 Node.js fetch API 发送 GET 请求
-          try {
-            const response = await fetch(apiEndpoint, {
-              method: 'GET',
-              headers: {
-                'apiKey': api_key,
-              },
-            });
+          const response = await fetch(apiEndpoint, {
+            method: 'GET',
+            headers: {
+              'apiKey': api_key,
+            },
+          });
 
-            if (!response.ok) {
-              const errorText = await response.text();
-              throw new Error(`HTTP ${response.status}: ${errorText}`);
-            }
-
-            const result = await response.json();
-            return {
-              content: [{
-                type: 'text',
-                text: JSON.stringify(result, null, 2)
-              }]
-            };
-          } catch (fetchError) {
-            console.error(`Debug - Fetch API failed: ${fetchError instanceof Error ? fetchError.message : 'Unknown error'}`);
-            console.error('Debug - Falling back to curl command');
-
-            // 如果 fetch 失败，回退到 curl 命令
-            const command = [
-              'curl',
-              '-X GET',
-              escapeShellArg(apiEndpoint),
-              '-H', escapeShellArg(`apiKey: ${api_key}`)
-            ].join(' ');
-
-            console.error(`Debug list_edge_functions - Executing curl command: ${command}`);
-
-            const result = await new Promise((resolve, reject) => {
-              exec(command, (error, stdout, stderr) => {
-                if (error) {
-                  console.error(`Debug - exec error: ${error.message}`);
-                  console.error(`Debug - stderr: ${stderr}`);
-                  reject(new Error(`Command failed: ${stderr || error.message}`));
-                  return;
-                }
-                if (stderr) {
-                  console.warn(`Debug - stderr output: ${stderr}`);
-                }
-                
-                try {
-                  const parsedOutput = JSON.parse(stdout);
-                  resolve(parsedOutput);
-                } catch (parseError) {
-                  const parseErrorMessage = parseError instanceof Error ? parseError.message : String(parseError);
-                  console.error(`Debug - JSON parse error: ${parseErrorMessage}`);
-                  console.error(`Debug - stdout received: ${stdout}`);
-                  reject(new Error(`Failed to parse curl output as JSON: ${stdout}`));
-                }
-              });
-            });
-
-            return {
-              content: [{
-                type: 'text',
-                text: JSON.stringify(result, null, 2)
-              }]
-            };
+          if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`HTTP ${response.status}: ${errorText}`);
           }
+
+          const result = await response.json();
+          return {
+            content: [{
+              type: 'text',
+              text: JSON.stringify(result, null, 2)
+            }]
+          };
         } catch (error) {
+          logFetchFailure(error, 'list_edge_functions');
           const message = error instanceof Error ? error.message : 'Unknown error occurred';
-          console.error(`Debug - Error: ${message}`);
           return {
             content: [{ type: 'text', text: `Error: ${message}` }]
           };
@@ -1242,89 +868,37 @@ export async function getAliyunTools({
           const requestBody = data ? JSON.stringify(data) : undefined;
 
           // 使用 Node.js fetch API 发送 POST 请求
-          try {
-            const response = await fetch(apiEndpoint, {
-              method: 'POST',
-              headers: {
-                'Authorization': `Bearer ${api_key}`,
-                'Content-Type': 'application/json',
-              },
-              body: requestBody,
-            });
+          const response = await fetch(apiEndpoint, {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${api_key}`,
+              'Content-Type': 'application/json',
+            },
+            body: requestBody,
+          });
 
-            if (!response.ok) {
-              const errorText = await response.text();
-              throw new Error(`HTTP ${response.status}: ${errorText}`);
-            }
-
-            // 尝试解析 JSON 响应，如果不是 JSON 则返回文本
-            const contentType = response.headers.get('content-type');
-            let result;
-            if (contentType && contentType.includes('application/json')) {
-              result = await response.json();
-            } else {
-              result = await response.text();
-            }
-
-            return {
-              content: [{
-                type: 'text',
-                text: JSON.stringify(result, null, 2)
-              }]
-            };
-          } catch (fetchError) {
-            console.error(`Debug - Fetch API failed: ${fetchError instanceof Error ? fetchError.message : 'Unknown error'}`);
-            console.error('Debug - Falling back to curl command');
-
-            // 如果 fetch 失败，回退到 curl 命令
-            const commandParts = [
-              'curl',
-              '-L',
-              '-X POST',
-              escapeShellArg(apiEndpoint),
-              '-H', escapeShellArg(`Authorization: Bearer ${api_key}`),
-              '-H', escapeShellArg('Content-Type: application/json')
-            ];
-
-            if (requestBody) {
-              commandParts.push('-d', escapeShellArg(requestBody));
-            }
-
-            const command = commandParts.join(' ');
-
-            console.error(`Debug invoke_edge_function - Executing curl command: ${command}`);
-
-            const result = await new Promise((resolve, reject) => {
-              exec(command, (error, stdout, stderr) => {
-                if (error) {
-                  console.error(`Debug - exec error: ${error.message}`);
-                  console.error(`Debug - stderr: ${stderr}`);
-                  reject(new Error(`Command failed: ${stderr || error.message}`));
-                  return;
-                }
-                if (stderr) {
-                  console.warn(`Debug - stderr output: ${stderr}`);
-                }
-                
-                try {
-                  // 尝试解析 JSON，如果失败则返回原始文本
-                  const parsedOutput = JSON.parse(stdout);
-                  resolve(parsedOutput);
-                } catch (parseError) {
-                  // 如果不是 JSON，直接返回文本
-                  resolve(stdout);
-                }
-              });
-            });
-
-            return {
-              content: [{
-                type: 'text',
-                text: typeof result === 'string' ? result : JSON.stringify(result, null, 2)
-              }]
-            };
+          if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`HTTP ${response.status}: ${errorText}`);
           }
+
+          // 尝试解析 JSON 响应，如果不是 JSON 则返回文本
+          const contentType = response.headers.get('content-type');
+          let result;
+          if (contentType && contentType.includes('application/json')) {
+            result = await response.json();
+          } else {
+            result = await response.text();
+          }
+
+          return {
+            content: [{
+              type: 'text',
+              text: JSON.stringify(result, null, 2)
+            }]
+          };
         } catch (error) {
+          logFetchFailure(error, 'invoke_edge_function');
           const message = error instanceof Error ? error.message : 'Unknown error occurred';
           console.error(`Debug - Error: ${message}`);
           return {
@@ -1351,85 +925,37 @@ export async function getAliyunTools({
           const apiEndpoint = `${apiUrl}/api/edge-api/v1/projects/default/functions/${encodeURIComponent(function_name)}`;
 
           // 使用 Node.js fetch API 发送 DELETE 请求
-          try {
-            const response = await fetch(apiEndpoint, {
-              method: 'DELETE',
-              headers: {
-                'apiKey': api_key,
-              },
-            });
+          const response = await fetch(apiEndpoint, {
+            method: 'DELETE',
+            headers: {
+              'apiKey': api_key,
+            },
+          });
 
-            if (!response.ok) {
-              const errorText = await response.text();
-              throw new Error(`HTTP ${response.status}: ${errorText}`);
-            }
-
-            // DELETE 请求可能返回空响应或 JSON
-            const contentType = response.headers.get('content-type');
-            let result;
-            if (contentType && contentType.includes('application/json')) {
-              result = await response.json();
-            } else {
-              // 如果响应为空，返回成功消息
-              const text = await response.text();
-              result = text || { message: 'Function deleted successfully' };
-            }
-
-            return {
-              content: [{
-                type: 'text',
-                text: JSON.stringify(result, null, 2)
-              }]
-            };
-          } catch (fetchError) {
-            console.error(`Debug - Fetch API failed: ${fetchError instanceof Error ? fetchError.message : 'Unknown error'}`);
-            console.error('Debug - Falling back to curl command');
-
-            // 如果 fetch 失败，回退到 curl 命令
-            const command = [
-              'curl',
-              '-X DELETE',
-              escapeShellArg(apiEndpoint),
-              '-H', escapeShellArg(`apiKey: ${api_key}`)
-            ].join(' ');
-
-            console.error(`Debug delete_edge_function - Executing curl command: ${command}`);
-
-            const result = await new Promise((resolve, reject) => {
-              exec(command, (error, stdout, stderr) => {
-                if (error) {
-                  console.error(`Debug - exec error: ${error.message}`);
-                  console.error(`Debug - stderr: ${stderr}`);
-                  reject(new Error(`Command failed: ${stderr || error.message}`));
-                  return;
-                }
-                if (stderr) {
-                  console.warn(`Debug - stderr output: ${stderr}`);
-                }
-                
-                try {
-                  // 尝试解析 JSON，如果失败则返回成功消息
-                  if (stdout.trim()) {
-                    const parsedOutput = JSON.parse(stdout);
-                    resolve(parsedOutput);
-                  } else {
-                    resolve({ message: 'Function deleted successfully' });
-                  }
-                } catch (parseError) {
-                  // 如果不是 JSON，返回原始文本或成功消息
-                  resolve(stdout.trim() || { message: 'Function deleted successfully' });
-                }
-              });
-            });
-
-            return {
-              content: [{
-                type: 'text',
-                text: typeof result === 'string' ? result : JSON.stringify(result, null, 2)
-              }]
-            };
+          if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`HTTP ${response.status}: ${errorText}`);
           }
+
+          // DELETE 请求可能返回空响应或 JSON
+          const contentType = response.headers.get('content-type');
+          let result;
+          if (contentType && contentType.includes('application/json')) {
+            result = await response.json();
+          } else {
+            // 如果响应为空，返回成功消息
+            const text = await response.text();
+            result = text || { message: 'Function deleted successfully' };
+          }
+
+          return {
+            content: [{
+              type: 'text',
+              text: JSON.stringify(result, null, 2)
+            }]
+          };
         } catch (error) {
+          logFetchFailure(error, 'delete_edge_function');
           const message = error instanceof Error ? error.message : 'Unknown error occurred';
           console.error(`Debug - Error: ${message}`);
           return {
@@ -1450,93 +976,15 @@ export async function getAliyunTools({
       execute: async ({ url, api_key, page, per_page }) => {
         try {
           // 使用平台接口列出用户
-          try {
-            const result = await platform.listAuthUsersViaUrl({ url, api_key, page, per_page });
-            return {
-              content: [{
-                type: 'text',
-                text: JSON.stringify(result, null, 2)
-              }]
-            };
-          } catch (tsError) {
-            console.error(`Debug - TypeScript interface failed: ${tsError instanceof Error ? tsError.message : 'Unknown error'}`);
-            console.error('Debug - Falling back to curl command');
-            
-            // 如果 TypeScript 接口失败，回退到 curl 命令
-            let apiUrl = url;
-            if (!apiUrl.startsWith('http://') && !apiUrl.startsWith('https://')) {
-              apiUrl = "https://" + apiUrl;
-            }
-            let apiEndpoint = `${apiUrl}/auth/v1/admin/users`;
-            
-            // 构建查询参数
-            const queryParams: string[] = [];
-            if (page !== undefined) {
-              queryParams.push(`page=${encodeURIComponent(page)}`);
-            }
-            if (per_page !== undefined) {
-              queryParams.push(`per_page=${encodeURIComponent(per_page)}`);
-            }
-            if (queryParams.length > 0) {
-              apiEndpoint = apiEndpoint + "?" + queryParams.join("&");
-            }
-
-            const command = [
-              'curl',
-              '-X GET',
-              escapeShellArg(apiEndpoint),
-              '-H', escapeShellArg(`apikey: ${api_key}`),
-              '-H', escapeShellArg(`Authorization: Bearer ${api_key}`),
-              '-H', escapeShellArg('Content-Type: application/json')
-            ].join(' ');
-
-            console.error(`Debug list_auth_users - Executing curl command: ${command}`);
-
-            const result = await new Promise((resolve, reject) => {
-              exec(command, (error, stdout, stderr) => {
-                if (error) {
-                  console.error(`Debug - exec error: ${error.message}`);
-                  console.error(`Debug - stderr: ${stderr}`);
-                  reject(new Error(`Command failed: ${stderr || error.message}`));
-                  return;
-                }
-                if (stderr) {
-                  console.warn(`Debug - stderr output: ${stderr}`);
-                }
-                
-                try {
-                  const parsedOutput = JSON.parse(stdout);
-                  // 处理不同的响应格式
-                  if (Array.isArray(parsedOutput)) {
-                    resolve({
-                      users: parsedOutput,
-                      total: parsedOutput.length
-                    });
-                  } else if (parsedOutput.users) {
-                    resolve(parsedOutput);
-                  } else {
-                    resolve({
-                      users: [parsedOutput],
-                      total: 1
-                    });
-                  }
-                } catch (parseError) {
-                  const parseErrorMessage = parseError instanceof Error ? parseError.message : String(parseError);
-                  console.error(`Debug - JSON parse error: ${parseErrorMessage}`);
-                  console.error(`Debug - stdout received: ${stdout}`);
-                  reject(new Error(`Failed to parse curl output as JSON: ${stdout}`));
-                }
-              });
-            });
-
-            return {
-              content: [{
-                type: 'text',
-                text: JSON.stringify(result, null, 2)
-              }]
-            };
-          }
+          const result = await platform.listAuthUsersViaUrl({ url, api_key, page, per_page });
+          return {
+            content: [{
+              type: 'text',
+              text: JSON.stringify(result, null, 2)
+            }]
+          };
         } catch (error) {
+          logFetchFailure(error, 'list_auth_users');
           const message = error instanceof Error ? error.message : 'Unknown error occurred';
           console.error(`Debug - Error: ${message}`);
           return {
@@ -1556,68 +1004,15 @@ export async function getAliyunTools({
       execute: async ({ url, api_key, user_id }) => {
         try {
           // 使用平台接口获取用户
-          try {
-            const result = await platform.getAuthUserViaUrl({ url, api_key, user_id });
-            return {
-              content: [{
-                type: 'text',
-                text: JSON.stringify(result, null, 2)
-              }]
-            };
-          } catch (tsError) {
-            console.error(`Debug - TypeScript interface failed: ${tsError instanceof Error ? tsError.message : 'Unknown error'}`);
-            console.error('Debug - Falling back to curl command');
-            
-            // 如果 TypeScript 接口失败，回退到 curl 命令
-            let apiUrl = url;
-            if (!apiUrl.startsWith('http://') && !apiUrl.startsWith('https://')) {
-              apiUrl = "https://" + apiUrl;
-            }
-            const apiEndpoint = `${apiUrl}/auth/v1/admin/users/${encodeURIComponent(user_id)}`;
-
-            const command = [
-              'curl',
-              '-X GET',
-              escapeShellArg(apiEndpoint),
-              '-H', escapeShellArg(`apikey: ${api_key}`),
-              '-H', escapeShellArg(`Authorization: Bearer ${api_key}`),
-              '-H', escapeShellArg('Content-Type: application/json')
-            ].join(' ');
-
-            console.error(`Debug get_auth_user - Executing curl command: ${command}`);
-
-            const result = await new Promise((resolve, reject) => {
-              exec(command, (error, stdout, stderr) => {
-                if (error) {
-                  console.error(`Debug - exec error: ${error.message}`);
-                  console.error(`Debug - stderr: ${stderr}`);
-                  reject(new Error(`Command failed: ${stderr || error.message}`));
-                  return;
-                }
-                if (stderr) {
-                  console.warn(`Debug - stderr output: ${stderr}`);
-                }
-                
-                try {
-                  const parsedOutput = JSON.parse(stdout);
-                  resolve(parsedOutput);
-                } catch (parseError) {
-                  const parseErrorMessage = parseError instanceof Error ? parseError.message : String(parseError);
-                  console.error(`Debug - JSON parse error: ${parseErrorMessage}`);
-                  console.error(`Debug - stdout received: ${stdout}`);
-                  reject(new Error(`Failed to parse curl output as JSON: ${stdout}`));
-                }
-              });
-            });
-
-            return {
-              content: [{
-                type: 'text',
-                text: JSON.stringify(result, null, 2)
-              }]
-            };
-          }
+          const result = await platform.getAuthUserViaUrl({ url, api_key, user_id });
+          return {
+            content: [{
+              type: 'text',
+              text: JSON.stringify(result, null, 2)
+            }]
+          };
         } catch (error) {
+          logFetchFailure(error, 'get_auth_user');
           const message = error instanceof Error ? error.message : 'Unknown error occurred';
           console.error(`Debug - Error: ${message}`);
           return {
@@ -1644,93 +1039,26 @@ export async function getAliyunTools({
       execute: async ({ url, api_key, email, phone, password, email_confirm, phone_confirm, user_metadata, app_metadata, ban_duration }) => {
         try {
           // 使用平台接口创建用户
-          try {
-            const result = await platform.createAuthUserViaUrl({
-              url,
-              api_key,
-              email,
-              phone,
-              password,
-              email_confirm,
-              phone_confirm,
-              user_metadata,
-              app_metadata,
-              ban_duration,
-            });
-            return {
-              content: [{
-                type: 'text',
-                text: JSON.stringify(result, null, 2)
-              }]
-            };
-          } catch (tsError) {
-            console.error(`Debug - TypeScript interface failed: ${tsError instanceof Error ? tsError.message : 'Unknown error'}`);
-            console.error('Debug - Falling back to curl command');
-            
-            // 如果 TypeScript 接口失败，回退到 curl 命令
-            let apiUrl = url;
-            if (!apiUrl.startsWith('http://') && !apiUrl.startsWith('https://')) {
-              apiUrl = "https://" + apiUrl;
-            }
-            const apiEndpoint = `${apiUrl}/auth/v1/admin/users`;
-
-            // 构建请求体
-            const requestBody: Record<string, any> = {};
-            if (email !== undefined) requestBody.email = email;
-            if (phone !== undefined) requestBody.phone = phone;
-            if (password !== undefined) requestBody.password = password;
-            if (email_confirm !== undefined) requestBody.email_confirm = email_confirm;
-            if (phone_confirm !== undefined) requestBody.phone_confirm = phone_confirm;
-            if (user_metadata !== undefined) requestBody.user_metadata = user_metadata;
-            if (app_metadata !== undefined) requestBody.app_metadata = app_metadata;
-            if (ban_duration !== undefined) requestBody.ban_duration = ban_duration;
-
-            const jsonData = JSON.stringify(requestBody);
-
-            const command = [
-              'curl',
-              '-X POST',
-              escapeShellArg(apiEndpoint),
-              '-H', escapeShellArg(`apikey: ${api_key}`),
-              '-H', escapeShellArg(`Authorization: Bearer ${api_key}`),
-              '-H', escapeShellArg('Content-Type: application/json'),
-              '-d', escapeShellArg(jsonData)
-            ].join(' ');
-
-            console.error(`Debug create_auth_user - Executing curl command: ${command}`);
-
-            const result = await new Promise((resolve, reject) => {
-              exec(command, (error, stdout, stderr) => {
-                if (error) {
-                  console.error(`Debug - exec error: ${error.message}`);
-                  console.error(`Debug - stderr: ${stderr}`);
-                  reject(new Error(`Command failed: ${stderr || error.message}`));
-                  return;
-                }
-                if (stderr) {
-                  console.warn(`Debug - stderr output: ${stderr}`);
-                }
-                
-                try {
-                  const parsedOutput = JSON.parse(stdout);
-                  resolve(parsedOutput);
-                } catch (parseError) {
-                  const parseErrorMessage = parseError instanceof Error ? parseError.message : String(parseError);
-                  console.error(`Debug - JSON parse error: ${parseErrorMessage}`);
-                  console.error(`Debug - stdout received: ${stdout}`);
-                  reject(new Error(`Failed to parse curl output as JSON: ${stdout}`));
-                }
-              });
-            });
-
-            return {
-              content: [{
-                type: 'text',
-                text: JSON.stringify(result, null, 2)
-              }]
-            };
-          }
+          const result = await platform.createAuthUserViaUrl({
+            url,
+            api_key,
+            email,
+            phone,
+            password,
+            email_confirm,
+            phone_confirm,
+            user_metadata,
+            app_metadata,
+            ban_duration,
+          });
+          return {
+            content: [{
+              type: 'text',
+              text: JSON.stringify(result, null, 2)
+            }]
+          };
         } catch (error) {
+          logFetchFailure(error, 'create_auth_user');
           const message = error instanceof Error ? error.message : 'Unknown error occurred';
           console.error(`Debug - Error: ${message}`);
           return {
@@ -1750,70 +1078,15 @@ export async function getAliyunTools({
       execute: async ({ url, api_key, user_id }) => {
         try {
           // 使用平台接口删除用户
-          try {
-            await platform.deleteAuthUserViaUrl({ url, api_key, user_id });
-            return {
-              content: [{
-                type: 'text',
-                text: JSON.stringify({ message: 'User deleted successfully' }, null, 2)
-              }]
-            };
-          } catch (tsError) {
-            console.error(`Debug - TypeScript interface failed: ${tsError instanceof Error ? tsError.message : 'Unknown error'}`);
-            console.error('Debug - Falling back to curl command');
-            
-            // 如果 TypeScript 接口失败，回退到 curl 命令
-            let apiUrl = url;
-            if (!apiUrl.startsWith('http://') && !apiUrl.startsWith('https://')) {
-              apiUrl = "https://" + apiUrl;
-            }
-            const apiEndpoint = `${apiUrl}/auth/v1/admin/users/${encodeURIComponent(user_id)}`;
-
-            const command = [
-              'curl',
-              '-X DELETE',
-              escapeShellArg(apiEndpoint),
-              '-H', escapeShellArg(`apikey: ${api_key}`),
-              '-H', escapeShellArg(`Authorization: Bearer ${api_key}`),
-              '-H', escapeShellArg('Content-Type: application/json')
-            ].join(' ');
-
-            console.error(`Debug delete_auth_user - Executing curl command: ${command}`);
-
-            const result = await new Promise((resolve, reject) => {
-              exec(command, (error, stdout, stderr) => {
-                if (error) {
-                  console.error(`Debug - exec error: ${error.message}`);
-                  console.error(`Debug - stderr: ${stderr}`);
-                  reject(new Error(`Command failed: ${stderr || error.message}`));
-                  return;
-                }
-                if (stderr) {
-                  console.warn(`Debug - stderr output: ${stderr}`);
-                }
-                
-                // DELETE 请求可能返回空响应或 JSON
-                if (stdout.trim()) {
-                  try {
-                    const parsedOutput = JSON.parse(stdout);
-                    resolve(parsedOutput);
-                  } catch (parseError) {
-                    resolve({ message: 'User deleted successfully' });
-                  }
-                } else {
-                  resolve({ message: 'User deleted successfully' });
-                }
-              });
-            });
-
-            return {
-              content: [{
-                type: 'text',
-                text: JSON.stringify(result, null, 2)
-              }]
-            };
-          }
+          await platform.deleteAuthUserViaUrl({ url, api_key, user_id });
+          return {
+            content: [{
+              type: 'text',
+              text: JSON.stringify({ message: 'User deleted successfully' }, null, 2)
+            }]
+          };
         } catch (error) {
+          logFetchFailure(error, 'delete_auth_user');
           const message = error instanceof Error ? error.message : 'Unknown error occurred';
           console.error(`Debug - Error: ${message}`);
           return {
@@ -1841,94 +1114,27 @@ export async function getAliyunTools({
       execute: async ({ url, api_key, user_id, email, phone, password, email_confirm, phone_confirm, user_metadata, app_metadata, ban_duration }) => {
         try {
           // 使用平台接口更新用户
-          try {
-            const result = await platform.updateAuthUserViaUrl({
-              url,
-              api_key,
-              user_id,
-              email,
-              phone,
-              password,
-              email_confirm,
-              phone_confirm,
-              user_metadata,
-              app_metadata,
-              ban_duration,
-            });
-            return {
-              content: [{
-                type: 'text',
-                text: JSON.stringify(result, null, 2)
-              }]
-            };
-          } catch (tsError) {
-            console.error(`Debug - TypeScript interface failed: ${tsError instanceof Error ? tsError.message : 'Unknown error'}`);
-            console.error('Debug - Falling back to curl command');
-            
-            // 如果 TypeScript 接口失败，回退到 curl 命令
-            let apiUrl = url;
-            if (!apiUrl.startsWith('http://') && !apiUrl.startsWith('https://')) {
-              apiUrl = "https://" + apiUrl;
-            }
-            const apiEndpoint = `${apiUrl}/auth/v1/admin/users/${encodeURIComponent(user_id)}`;
-
-            // 构建请求体
-            const requestBody: Record<string, any> = {};
-            if (email !== undefined) requestBody.email = email;
-            if (phone !== undefined) requestBody.phone = phone;
-            if (password !== undefined) requestBody.password = password;
-            if (email_confirm !== undefined) requestBody.email_confirm = email_confirm;
-            if (phone_confirm !== undefined) requestBody.phone_confirm = phone_confirm;
-            if (user_metadata !== undefined) requestBody.user_metadata = user_metadata;
-            if (app_metadata !== undefined) requestBody.app_metadata = app_metadata;
-            if (ban_duration !== undefined) requestBody.ban_duration = ban_duration;
-
-            const jsonData = JSON.stringify(requestBody);
-
-            const command = [
-              'curl',
-              '-X PUT',
-              escapeShellArg(apiEndpoint),
-              '-H', escapeShellArg(`apikey: ${api_key}`),
-              '-H', escapeShellArg(`Authorization: Bearer ${api_key}`),
-              '-H', escapeShellArg('Content-Type: application/json'),
-              '-d', escapeShellArg(jsonData)
-            ].join(' ');
-
-            console.error(`Debug update_auth_user - Executing curl command: ${command}`);
-
-            const result = await new Promise((resolve, reject) => {
-              exec(command, (error, stdout, stderr) => {
-                if (error) {
-                  console.error(`Debug - exec error: ${error.message}`);
-                  console.error(`Debug - stderr: ${stderr}`);
-                  reject(new Error(`Command failed: ${stderr || error.message}`));
-                  return;
-                }
-                if (stderr) {
-                  console.warn(`Debug - stderr output: ${stderr}`);
-                }
-                
-                try {
-                  const parsedOutput = JSON.parse(stdout);
-                  resolve(parsedOutput);
-                } catch (parseError) {
-                  const parseErrorMessage = parseError instanceof Error ? parseError.message : String(parseError);
-                  console.error(`Debug - JSON parse error: ${parseErrorMessage}`);
-                  console.error(`Debug - stdout received: ${stdout}`);
-                  reject(new Error(`Failed to parse curl output as JSON: ${stdout}`));
-                }
-              });
-            });
-
-            return {
-              content: [{
-                type: 'text',
-                text: JSON.stringify(result, null, 2)
-              }]
-            };
-          }
+          const result = await platform.updateAuthUserViaUrl({
+            url,
+            api_key,
+            user_id,
+            email,
+            phone,
+            password,
+            email_confirm,
+            phone_confirm,
+            user_metadata,
+            app_metadata,
+            ban_duration,
+          });
+          return {
+            content: [{
+              type: 'text',
+              text: JSON.stringify(result, null, 2)
+            }]
+          };
         } catch (error) {
+          logFetchFailure(error, 'update_auth_user');
           const message = error instanceof Error ? error.message : 'Unknown error occurred';
           console.error(`Debug - Error: ${message}`);
           return {
@@ -1955,6 +1161,7 @@ export async function getAliyunTools({
             }]
           };
         } catch (error) {
+          logFetchFailure(error, 'list_storage_buckets');
           const message = error instanceof Error ? error.message : 'Unknown error occurred';
           console.error(`Debug - Error: ${message}`);
           return {
@@ -1991,6 +1198,7 @@ export async function getAliyunTools({
             }]
           };
         } catch (error) {
+          logFetchFailure(error, 'create_storage_bucket');
           const message = error instanceof Error ? error.message : 'Unknown error occurred';
           console.error(`Debug - Error: ${message}`);
           return {
@@ -2017,6 +1225,7 @@ export async function getAliyunTools({
             }]
           };
         } catch (error) {
+          logFetchFailure(error, 'delete_storage_bucket');
           const message = error instanceof Error ? error.message : 'Unknown error occurred';
           console.error(`Debug - Error: ${message}`);
           return {
@@ -2059,6 +1268,7 @@ export async function getAliyunTools({
             }]
           };
         } catch (error) {
+          logFetchFailure(error, 'list_storage_files');
           const message = error instanceof Error ? error.message : 'Unknown error occurred';
           console.error(`Debug - Error: ${message}`);
           return {
@@ -2127,6 +1337,7 @@ export async function getAliyunTools({
             }]
           };
         } catch (error) {
+          logFetchFailure(error, 'upload_storage_file');
           const message = error instanceof Error ? error.message : 'Unknown error occurred';
           console.error(`Debug - Error: ${message}`);
           return {
@@ -2178,6 +1389,7 @@ export async function getAliyunTools({
             }]
           };
         } catch (error) {
+          logFetchFailure(error, 'download_storage_file');
           const message = error instanceof Error ? error.message : 'Unknown error occurred';
           console.error(`Debug - Error: ${message}`);
           return {
@@ -2213,6 +1425,7 @@ export async function getAliyunTools({
             }]
           };
         } catch (error) {
+          logFetchFailure(error, 'delete_storage_file');
           const message = error instanceof Error ? error.message : 'Unknown error occurred';
           console.error(`Debug - Error: ${message}`);
           return {
