@@ -1,72 +1,72 @@
-## Context
+## 背景
 
-The Aliyun Supabase MCP server allows AI assistants (Claude, Cursor, Qoder, etc.) to interact with Supabase projects via the Model Context Protocol. The server exposes tools for SQL execution, schema inspection, storage management, edge functions, and auth user management. Currently, the server provides no defense against a compromised or confused AI agent performing destructive operations, accessing internal network resources, or injecting malicious SQL.
+阿里云 Supabase MCP 服务器允许 AI 助手（Claude、Cursor、Qoder 等）通过模型上下文协议与 Supabase 项目交互。服务器提供 SQL 执行、Schema 检查、存储管理、Edge Function 和 Auth 用户管理等工具。目前，服务器对被攻陷或被误导的 AI 代理执行破坏性操作、访问内部网络资源或注入恶意 SQL 没有任何防御措施。
 
-The current codebase has:
-- No input validation on SQL identifiers, URLs, or file paths
-- `--read-only` flag defaulting to `false`
-- No API key authentication mechanism
-- Debug logging left in production code
-- A hardcoded access token in `stdio.ts`
+当前代码库存在以下问题：
+- 对 SQL 标识符、URL 和文件路径无输入校验
+- `--read-only` 标志默认为 `false`
+- 无 API Key 认证机制
+- 生产代码中残留调试日志
+- `stdio.ts` 中存在硬编码的 access token
 
-All changes must remain compatible with the existing MCP tool interface — tools accept the same parameters, just with additional validation.
+所有变更必须与现有 MCP 工具接口保持兼容 — 工具接受相同的参数，仅增加额外的校验。
 
-## Goals / Non-Goals
+## 目标 / 非目标
 
-**Goals:**
-- Default to read-only mode so accidental writes are impossible without explicit opt-in
-- Prevent SQL injection through identifier parameters in schema-inspection tools
-- Prevent SSRF attacks by restricting URLs to known-safe Supabase domains
-- Prevent path traversal in file-based SQL execution tools
-- Validate API key strength at startup for future HTTP transport authentication
-- Keep all security checks at the tool handler level (defense-in-depth, not just at the DB level)
-- Zero new external dependencies
+**目标：**
+- 默认只读模式，未显式启用时无法意外写入
+- 防止通过 Schema 检查工具的标识符参数进行 SQL 注入
+- 通过限制 URL 为已知安全的 Supabase 域名来防止 SSRF 攻击
+- 防止基于文件的 SQL 执行工具中的路径穿越
+- 在启动时校验 API Key 强度，为未来 HTTP 传输认证做准备
+- 将所有安全检查放在工具处理器层面（纵深防御，而非仅在数据库层面）
+- 零新增外部依赖
 
-**Non-Goals:**
-- Per-tool authorization (e.g., allowing SELECT but not INSERT at the tool level when in write mode)
-- HTTP transport implementation (API key validation is startup-only for now)
-- DNS rebinding protection (hostname allowlist relies on string matching, not DNS resolution)
-- Rate limiting or request throttling
-- Encryption of credentials at rest
+**非目标：**
+- 按工具授权（例如，在写模式下允许 SELECT 但不允许 INSERT）
+- HTTP 传输实现（API Key 校验目前仅在启动时进行）
+- DNS 重绑定防护（主机名白名单依赖字符串匹配，而非 DNS 解析）
+- 速率限制或请求节流
+- 凭证静态加密
 
-## Decisions
+## 决策
 
-### 1. Transaction-level read-only enforcement (not SQL keyword filtering)
+### 1. 事务级只读强制执行（而非 SQL 关键字过滤）
 
-**Decision**: Wrap all SQL in `BEGIN; SET LOCAL transaction_read_only = on; <sql>; ROLLBACK;` transactions.
+**决策**：将所有 SQL 包装在 `BEGIN; SET LOCAL transaction_read_only = on; <sql>; ROLLBACK;` 事务中。
 
-**Rationale**: Keyword-based filtering (checking for INSERT/DROP/etc.) is easily bypassed via comments, string concatenation, or PostgreSQL's procedural languages. The database's own transaction mode is the only reliable enforcement mechanism. The `assertReadOnlyQuery` function exists as a best-effort pre-check but is not the primary defense.
+**理由**：基于关键字的过滤（检查 INSERT/DROP 等）很容易通过注释、字符串拼接或 PostgreSQL 过程语言绕过。数据库自身的事务模式是唯一可靠的强制执行机制。`assertReadOnlyQuery` 函数作为尽力而为的预检查存在，但不是主要防御手段。
 
-**Alternative considered**: Reject SQL at the application level by parsing the query with `libpg-query`. Rejected because PostgreSQL has too many ways to express write operations (DO blocks, CTEs with DML, etc.) and parsing adds a heavy dependency.
+**备选方案**：通过 `libpg-query` 解析查询在应用层拒绝 SQL。被否决，因为 PostgreSQL 有太多表达写操作的方式（DO 块、带 DML 的 CTE 等），且解析增加了重型依赖。
 
-### 2. URL allowlist (not denylist)
+### 2. URL 白名单（而非黑名单）
 
-**Decision**: Use an allowlist of permitted hostname patterns rather than a denylist of blocked hosts.
+**决策**：使用允许的主机名模式白名单，而非被阻止主机的黑名单。
 
-**Rationale**: Denylists are fragile — new cloud metadata endpoints, private IP ranges, and encoding tricks constantly emerge. An allowlist of `*.supabase.opentrust.net`, `*.supabase.co`, and localhost is simple, auditable, and covers all legitimate use cases.
+**理由**：黑名单很脆弱 — 新的云元数据端点、私有 IP 范围和编码技巧不断出现。`*.supabase.opentrust.net`、`*.supabase.co` 和 localhost 的白名单简单、可审计，且覆盖所有合法用例。
 
-### 3. Identifier regex validation (not escaping)
+### 3. 标识符正则校验（而非转义）
 
-**Decision**: Validate identifiers against `^[a-zA-Z_][a-zA-Z0-9_]*$` and reject non-matching input, rather than escaping arbitrary input with double-quote quoting.
+**决策**：根据 `^[a-zA-Z_][a-zA-Z0-9_]*$` 校验标识符并拒绝不匹配的输入，而非用双引号转义任意输入。
 
-**Rationale**: Supabase schema/table/column names created through the platform always follow this pattern. Allowing arbitrary identifiers (even if escaped) expands the attack surface unnecessarily. Rejecting special characters entirely is simpler and more auditable.
+**理由**：通过平台创建的 Supabase schema/table/column 名称始终遵循此模式。允许任意标识符（即使已转义）也会不必要地扩大攻击面。完全拒绝特殊字符更简单、更可审计。
 
-### 4. API key validation at startup only
+### 4. 仅启动时校验 API Key
 
-**Decision**: Validate API key format/length at server startup. Per-request authentication is not yet implemented.
+**决策**：在服务器启动时校验 API Key 格式/长度。尚未实现每请求认证。
 
-**Rationale**: The current transport is stdio (local pipe), not HTTP. Per-request auth will be needed when HTTP transport is added, but for now, startup validation ensures operators configure strong keys. The `createApiKeyValidator` and `timingSafeEqual` utilities are pre-built for future use.
+**理由**：当前传输方式是 stdio（本地管道），而非 HTTP。添加 HTTP 传输时需要每请求认证，但目前启动校验可确保运维人员配置强密钥。`createApiKeyValidator` 和 `timingSafeEqual` 工具已预构建供未来使用。
 
-### 5. `--write` flag semantics
+### 5. `--write` 标志语义
 
-**Decision**: `--write` overrides `--read-only`. If both flags are set, write mode wins.
+**决策**：`--write` 覆盖 `--read-only`。如果两个标志都设置，写模式优先。
 
-**Rationale**: Users who currently pass `--read-only` should not be broken. The new default is safe, and `--write` is the explicit opt-out. This is a simpler mental model than `--no-read-only`.
+**理由**：当前传递 `--read-only` 的用户不应被破坏。新默认值是安全的，`--write` 是显式退出选项。这比 `--no-read-only` 的心智模型更简单。
 
-## Risks / Trade-offs
+## 风险 / 权衡
 
-- **[BREAKING] Default read-only** → Users who relied on the old default (read-write) must add `--write` to their config. Mitigated by clear README documentation and error messages.
-- **Identifier validation rejects valid PostgreSQL identifiers** → Hyphenated schema names or Unicode identifiers are rejected. Mitigated by noting this is only for tools that construct SQL (not `execute_sql` which accepts arbitrary SQL).
-- **SSRF allowlist may miss custom domains** → Users with custom Supabase domains or proxies will be blocked. Mitigated by documenting how to extend `ALLOWED_HOSTNAME_PATTERNS` in the source.
-- **No DNS resolution validation** → An attacker could point an allowlisted hostname to an internal IP via DNS rebinding. This is a known limitation; full mitigation requires runtime DNS resolution checks.
-- **Startup-only API key validation** → Until HTTP transport is implemented, the API key only guards against misconfiguration, not against unauthorized tool calls.
+- **[破坏性变更] 默认只读** → 依赖旧默认值（读写）的用户必须在配置中添加 `--write`。通过清晰的 README 文档和错误消息缓解。
+- **标识符校验拒绝合法的 PostgreSQL 标识符** → 连字符 schema 名称或 Unicode 标识符被拒绝。通过注明此校验仅适用于构造 SQL 的工具（不适用于接受任意 SQL 的 `execute_sql`）来缓解。
+- **SSRF 白名单可能遗漏自定义域名** → 使用自定义 Supabase 域名或代理的用户将被阻止。通过在源码中记录如何扩展 `ALLOWED_HOSTNAME_PATTERNS` 来缓解。
+- **无 DNS 解析校验** → 攻击者可通过 DNS 重绑定将白名单主机名指向内部 IP。这是已知限制；完全缓解需要运行时 DNS 解析检查。
+- **仅启动时 API Key 校验** → 在实现 HTTP 传输之前，API Key 仅防止配置错误，不能防止未授权的工具调用。

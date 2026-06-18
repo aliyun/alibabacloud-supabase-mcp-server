@@ -1,20 +1,20 @@
 schema: spec-driven
 
-# Project context (optional)
-# This is shown to AI when creating artifacts.
-# Add your tech stack, conventions, style guides, domain knowledge, etc.
-# Example:
+# 项目上下文（可选）
+# 创建工件时展示给 AI。
+# 添加你的技术栈、约定、风格指南、领域知识等。
+# 示例：
 #   context: |
-#     Tech stack: TypeScript, React, Node.js
-#     We use conventional commits
-#     Domain: e-commerce platform
+#     技术栈：TypeScript, React, Node.js
+#     使用约定式提交
+#     领域：电商平台
 
-# Per-artifact rules (optional)
-# Add custom rules for specific artifacts.
-# Example:
+# 按工件规则（可选）
+# 为特定工件添加自定义规则。
+# 示例：
 #   rules:
 #     proposal:
-#       - Keep proposals under 500 words
-#       - Always include a "Non-goals" section
+#       - 提案控制在 500 字以内
+#       - 始终包含"非目标"部分
 #     tasks:
-#       - Break tasks into chunks of max 2 hours
+#       - 将任务拆分为最多 2 小时的块

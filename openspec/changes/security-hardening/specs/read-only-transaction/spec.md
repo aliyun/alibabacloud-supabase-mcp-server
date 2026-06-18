@@ -1,38 +1,38 @@
-## ADDED Requirements
+## 新增需求
 
-### Requirement: Default read-only mode
-The MCP server SHALL start in read-only mode by default. The `--read-only` CLI flag SHALL default to `true`.
+### 需求：默认只读模式
+MCP 服务器默认以只读模式启动。`--read-only` CLI 标志默认为 `true`。
 
-#### Scenario: Server starts without explicit read-only flag
-- **WHEN** the MCP server is started without `--read-only` or `--write` flags
-- **THEN** the server SHALL operate in read-only mode
+#### 场景：服务器启动时未显式指定只读标志
+- **当** MCP 服务器启动时未指定 `--read-only` 或 `--write` 标志
+- **则** 服务器以只读模式运行
 
-#### Scenario: Server starts with --write flag
-- **WHEN** the MCP server is started with the `--write` flag
-- **THEN** the server SHALL operate in write mode regardless of the `--read-only` flag value
+#### 场景：服务器以 --write 标志启动
+- **当** MCP 服务器以 `--write` 标志启动
+- **则** 服务器以写模式运行，无论 `--read-only` 标志的值如何
 
-### Requirement: Transaction wrapping for SQL execution
-When in read-only mode, the `execute_sql` and `execute_sql_file` tools SHALL wrap all user SQL in a read-only transaction: `BEGIN; SET LOCAL transaction_read_only = on; <user_sql>; ROLLBACK;`.
+### 需求：SQL 执行的事务包装
+只读模式下，`execute_sql` 和 `execute_sql_file` 工具会将所有用户 SQL 包装在只读事务中：`BEGIN; SET LOCAL transaction_read_only = on; <user_sql>; ROLLBACK;`。
 
-#### Scenario: SELECT query in read-only mode
-- **WHEN** a SELECT query is submitted while in read-only mode
-- **THEN** the server SHALL wrap the query in a read-only transaction and return the query results
+#### 场景：只读模式下的 SELECT 查询
+- **当** 在只读模式下提交 SELECT 查询
+- **则** 服务器将查询包装在只读事务中并返回查询结果
 
-#### Scenario: INSERT query in read-only mode
-- **WHEN** an INSERT query is submitted while in read-only mode
-- **THEN** the server SHALL wrap the query in a read-only transaction and the database SHALL reject it with error code 25006
+#### 场景：只读模式下的 INSERT 查询
+- **当** 在只读模式下提交 INSERT 查询
+- **则** 服务器将查询包装在只读事务中，数据库以错误码 25006 拒绝
 
-#### Scenario: DROP TABLE query in read-only mode
-- **WHEN** a DROP TABLE query is submitted while in read-only mode
-- **THEN** the server SHALL wrap the query in a read-only transaction and the database SHALL reject it with error code 25006
+#### 场景：只读模式下的 DROP TABLE 查询
+- **当** 在只读模式下提交 DROP TABLE 查询
+- **则** 服务器将查询包装在只读事务中，数据库以错误码 25006 拒绝
 
-#### Scenario: Semicolon handling before ROLLBACK
-- **WHEN** user SQL does not end with a semicolon
-- **THEN** the server SHALL append a semicolon before the ROLLBACK statement to avoid SQL syntax errors
+#### 场景：ROLLBACK 前的分号处理
+- **当** 用户 SQL 未以分号结尾
+- **则** 服务器在 ROLLBACK 语句前追加分号，以避免 SQL 语法错误
 
-### Requirement: apply_migration disabled in read-only mode
-When in read-only mode, the `apply_migration` tool SHALL be disabled and reject any migration requests.
+### 需求：只读模式下禁用 apply_migration
+只读模式下，`apply_migration` 工具将被禁用，拒绝任何迁移请求。
 
-#### Scenario: apply_migration in read-only mode
-- **WHEN** a migration is requested while in read-only mode
-- **THEN** the tool SHALL return an error indicating migrations are not allowed in read-only mode
+#### 场景：只读模式下的 apply_migration
+- **当** 在只读模式下请求迁移
+- **则** 工具返回错误，提示只读模式下不允许迁移

@@ -1,27 +1,27 @@
-## ADDED Requirements
+## 新增需求
 
-### Requirement: File path validation for SQL execution
-The `execute_sql_file` and `apply_migration` tools SHALL validate the provided file path before reading the file. The path MUST:
-1. Be an absolute path starting with `/`
-2. End with `.sql` extension
-3. Not contain directory traversal sequences (`..`)
+### 需求：SQL 执行的文件路径校验
+`execute_sql_file` 和 `apply_migration` 工具在读取文件前必须校验提供的文件路径。路径必须：
+1. 以 `/` 开头的绝对路径
+2. 以 `.sql` 扩展名结尾
+3. 不含目录穿越序列（`..`）
 
-#### Scenario: Valid absolute .sql path accepted
-- **WHEN** a tool receives file path `/home/user/migrations/001_create_table.sql`
-- **THEN** the path SHALL pass validation and the tool SHALL proceed
+#### 场景：合法的绝对 .sql 路径被接受
+- **当** 工具收到文件路径 `/home/user/migrations/001_create_table.sql`
+- **则** 路径通过校验，工具正常执行
 
-#### Scenario: Relative path rejected
-- **WHEN** a tool receives file path `migrations/001.sql`
-- **THEN** the tool SHALL reject the path with an error about requiring an absolute path
+#### 场景：相对路径被拒绝
+- **当** 工具收到文件路径 `migrations/001.sql`
+- **则** 工具以"必须为绝对路径"错误拒绝该路径
 
-#### Scenario: Non-.sql extension rejected
-- **WHEN** a tool receives file path `/home/user/migrations/001_create_table.txt`
-- **THEN** the tool SHALL reject the path with an error about requiring .sql extension
+#### 场景：非 .sql 扩展名被拒绝
+- **当** 工具收到文件路径 `/home/user/migrations/001_create_table.txt`
+- **则** 工具以"必须为 .sql 扩展名"错误拒绝该路径
 
-#### Scenario: Path traversal rejected
-- **WHEN** a tool receives file path `/home/user/../../../etc/passwd.sql`
-- **THEN** the tool SHALL reject the path with an error about directory traversal sequences
+#### 场景：路径穿越被拒绝
+- **当** 工具收到文件路径 `/home/user/../../../etc/passwd.sql`
+- **则** 工具以"包含目录穿越序列"错误拒绝该路径
 
-#### Scenario: Hidden traversal rejected
-- **WHEN** a tool receives file path `/home/user/migrations/..%2F..%2Fetc%2Fpasswd.sql`
-- **THEN** the tool SHALL reject the path (path contains `..` after any normalization)
+#### 场景：隐藏穿越被拒绝
+- **当** 工具收到文件路径 `/home/user/migrations/..%2F..%2Fetc%2Fpasswd.sql`
+- **则** 工具拒绝该路径（路径在规范化后包含 `..`）

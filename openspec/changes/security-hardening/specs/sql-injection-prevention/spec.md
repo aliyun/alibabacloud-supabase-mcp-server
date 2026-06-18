@@ -1,46 +1,46 @@
-## ADDED Requirements
+## 新增需求
 
-### Requirement: SQL identifier validation
-All MCP tools that accept SQL identifiers (schema names, table names, column names) as parameters SHALL validate those identifiers against the pattern `^[a-zA-Z_][a-zA-Z0-9_]*$`. Identifiers that do not match SHALL be rejected with an error message.
+### 需求：SQL 标识符校验
+所有接受 SQL 标识符（schema 名、表名、列名）作为参数的 MCP 工具，必须根据 `^[a-zA-Z_][a-zA-Z0-9_]*$` 模式校验这些标识符。不匹配的标识符必须以错误消息拒绝。
 
-#### Scenario: Valid identifier accepted
-- **WHEN** a tool receives a table name like `inventory`
-- **THEN** the identifier SHALL pass validation and the tool SHALL proceed normally
+#### 场景：合法标识符被接受
+- **当** 工具收到表名 `inventory`
+- **则** 标识符通过校验，工具正常执行
 
-#### Scenario: Identifier with semicolon rejected
-- **WHEN** a tool receives a table name like `users; DROP TABLE users--`
-- **THEN** the tool SHALL reject the identifier with an error message about invalid characters
+#### 场景：含分号的标识符被拒绝
+- **当** 工具收到表名 `users; DROP TABLE users--`
+- **则** 工具以"包含非法字符"的错误消息拒绝该标识符
 
-#### Scenario: Identifier with quote rejected
-- **WHEN** a tool receives a schema name like `public' OR '1'='1`
-- **THEN** the tool SHALL reject the identifier with an error message about invalid characters
+#### 场景：含引号的标识符被拒绝
+- **当** 工具收到 schema 名 `public' OR '1'='1`
+- **则** 工具以"包含非法字符"的错误消息拒绝该标识符
 
-#### Scenario: Identifier exceeding length limit rejected
-- **WHEN** a tool receives an identifier longer than 63 characters
-- **THEN** the tool SHALL reject the identifier with an error message about maximum length
+#### 场景：超长标识符被拒绝
+- **当** 工具收到超过 63 个字符的标识符
+- **则** 工具以"超过最大长度"的错误消息拒绝该标识符
 
-### Requirement: Schema array validation
-Tools that accept an array of schema names (e.g., `schemas` parameter in `list_table`) SHALL validate each element using identifier validation rules.
+### 需求：Schema 数组校验
+接受 schema 名数组（例如 `list_table` 的 `schemas` 参数）的工具，必须对每个元素使用标识符校验规则。
 
-#### Scenario: Valid schema array accepted
-- **WHEN** `list_table` receives `schemas=["public", "auth"]`
-- **THEN** all elements SHALL pass validation and the tool SHALL proceed normally
+#### 场景：合法 schema 数组被接受
+- **当** `list_table` 收到 `schemas=["public", "auth"]`
+- **则** 所有元素通过校验，工具正常执行
 
-#### Scenario: Schema array with injection rejected
-- **WHEN** `list_table` receives `schemas=["public", "'; DROP TABLE users--"]`
-- **THEN** the tool SHALL reject the second element with an error about invalid characters
+#### 场景：含注入的 schema 数组被拒绝
+- **当** `list_table` 收到 `schemas=["public", "'; DROP TABLE users--"]`
+- **则** 工具以"包含非法字符"的错误消息拒绝第二个元素
 
-### Requirement: SQL literal escaping
-The `escapeSqlLiteral` function SHALL produce valid PostgreSQL string literals by wrapping values in single quotes and escaping internal special characters.
+### 需求：SQL 字面量转义
+`escapeSqlLiteral` 函数必须通过将值用单引号包裹并转义内部特殊字符，生成合法的 PostgreSQL 字符串字面量。
 
-#### Scenario: Simple string literal
-- **WHEN** `escapeSqlLiteral("public")` is called
-- **THEN** the result SHALL be `'public'`
+#### 场景：简单字符串字面量
+- **当** 调用 `escapeSqlLiteral("public")`
+- **则** 结果为 `'public'`
 
-#### Scenario: String with single quote
-- **WHEN** `escapeSqlLiteral("it's")` is called
-- **THEN** the result SHALL be `'it''s'`
+#### 场景：含单引号的字符串
+- **当** 调用 `escapeSqlLiteral("it's")`
+- **则** 结果为 `'it''s'`
 
-#### Scenario: String with backslash
-- **WHEN** `escapeSqlLiteral("path\\file")` is called
-- **THEN** the result SHALL be `'path\\\\file'`
+#### 场景：含反斜杠的字符串
+- **当** 调用 `escapeSqlLiteral("path\\file")`
+- **则** 结果为 `'path\\\\file'`

@@ -1,41 +1,41 @@
-## ADDED Requirements
+## 新增需求
 
-### Requirement: API key minimum length
-API keys SHALL be at least 32 characters long. Keys shorter than 32 characters SHALL be rejected at server startup.
+### 需求：API Key 最小长度
+API Key 长度必须至少为 32 个字符。短于 32 个字符的密钥在服务器启动时被拒绝。
 
-#### Scenario: Valid API key accepted
-- **WHEN** the server is started with `--api-key` flag set to a 32+ character alphanumeric string
-- **THEN** the server SHALL start successfully with a validation-passed message
+#### 场景：合法 API Key 被接受
+- **当** 服务器以 `--api-key` 标志启动，值为 32+ 字符的字母数字字符串
+- **则** 服务器成功启动，显示校验通过消息
 
-#### Scenario: Short API key rejected
-- **WHEN** the server is started with `--api-key` flag set to a 10-character string
-- **THEN** the server SHALL exit with an error about minimum key length
+#### 场景：短 API Key 被拒绝
+- **当** 服务器以 `--api-key` 标志启动，值为 10 字符的字符串
+- **则** 服务器以"最小密钥长度"错误退出
 
-### Requirement: API key pattern validation
-API keys SHALL NOT be purely numeric or consist of a single repeating character. These weak patterns SHALL be rejected at server startup.
+### 需求：API Key 模式校验
+API Key 不能为纯数字或由单个重复字符组成。这些弱模式在服务器启动时被拒绝。
 
-#### Scenario: Purely numeric key rejected
-- **WHEN** the server is started with `--api-key` set to `12345678901234567890123456789012`
-- **THEN** the server SHALL exit with an error about purely numeric keys
+#### 场景：纯数字密钥被拒绝
+- **当** 服务器以 `--api-key` 启动，值为 `12345678901234567890123456789012`
+- **则** 服务器以"纯数字密钥"错误退出
 
-#### Scenario: Repeating character key rejected
-- **WHEN** the server is started with `--api-key` set to `aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa`
-- **THEN** the server SHALL exit with an error about repeating characters
+#### 场景：重复字符密钥被拒绝
+- **当** 服务器以 `--api-key` 启动，值为 `aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa`
+- **则** 服务器以"重复字符"错误退出
 
-### Requirement: API key via environment variable
-The API key SHALL also be accepted via the `MCP_API_KEY` environment variable. The `--api-key` CLI flag takes precedence over the environment variable.
+### 需求：通过环境变量设置 API Key
+API Key 也可通过 `MCP_API_KEY` 环境变量设置。`--api-key` CLI 标志优先于环境变量。
 
-#### Scenario: API key from environment variable
-- **WHEN** the `MCP_API_KEY` environment variable is set to a valid key and no `--api-key` flag is provided
-- **THEN** the server SHALL validate the key from the environment variable and start successfully
+#### 场景：从环境变量获取 API Key
+- **当** `MCP_API_KEY` 环境变量设置为合法密钥，且未提供 `--api-key` 标志
+- **则** 服务器从环境变量校验密钥并成功启动
 
-#### Scenario: CLI flag overrides environment variable
-- **WHEN** both `MCP_API_KEY` environment variable and `--api-key` flag are set
-- **THEN** the server SHALL use the value from the `--api-key` flag
+#### 场景：CLI 标志覆盖环境变量
+- **当** 同时设置了 `MCP_API_KEY` 环境变量和 `--api-key` 标志
+- **则** 服务器使用 `--api-key` 标志的值
 
-### Requirement: Timing-safe key comparison
-When comparing API keys during request authentication, the server SHALL use constant-time comparison to prevent timing attacks.
+### 需求：时序安全的密钥比较
+在请求认证期间比较 API Key 时，服务器必须使用恒定时间比较以防止时序攻击。
 
-#### Scenario: Key comparison timing
-- **WHEN** an API key is compared against the configured key
-- **THEN** the comparison SHALL use constant-time comparison regardless of how many characters match
+#### 场景：密钥比较时序
+- **当** API Key 与已配置密钥进行比较
+- **则** 无论匹配多少字符，比较均使用恒定时间比较

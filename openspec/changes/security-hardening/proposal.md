@@ -1,36 +1,36 @@
-## Why
+## 为什么
 
-The MCP server exposes AI assistants with direct database access via SQL execution and HTTP API calls. Without security hardening, a malicious or confused AI agent could: (1) execute destructive SQL (DROP TABLE, DELETE, etc.), (2) perform SSRF attacks by supplying internal/cloud-metadata URLs, (3) inject SQL through identifier parameters, (4) read arbitrary files via path traversal in `execute_sql_file`, or (5) operate without authentication when exposed on non-local addresses. Per Aliyun MCP security policy requirements, the server must default to read-only mode, validate all user-controlled inputs, and support API key authentication.
+MCP 服务器通过 SQL 执行和 HTTP API 调用使 AI 助手可以直接访问数据库。如果不进行安全加固，恶意或被误导的 AI 代理可能：(1) 执行破坏性 SQL（DROP TABLE、DELETE 等），(2) 通过提供内部/云元数据 URL 发起 SSRF 攻击，(3) 通过标识符参数注入 SQL，(4) 通过 `execute_sql_file` 中的路径穿越读取任意文件，或 (5) 在非本地地址暴露时无认证运行。根据阿里云 MCP 安全策略要求，服务器必须默认只读模式、校验所有用户可控输入，并支持 API Key 认证。
 
-## What Changes
+## 变更内容
 
-- **BREAKING**: `--read-only` flag now defaults to `true` instead of `false`. Users who need write access must explicitly opt in with the new `--write` flag.
-- New `--write` flag to explicitly disable read-only mode (overrides `--read-only`)
-- New `--api-key` flag and `MCP_API_KEY` env var for startup-time API key validation
-- `execute_sql` and `execute_sql_file` tools now wrap all SQL in read-only transactions (`BEGIN; SET LOCAL transaction_read_only = on; <sql>; ROLLBACK;`) when in read-only mode
-- All URL-accepting tools now validate URLs against an allowlist (`*.supabase.opentrust.net`, `*.supabase.co`, localhost) to prevent SSRF
-- All SQL-identifier-accepting tools (`list_table`, `list_columns`, `list_indexes`) now validate identifiers against `^[a-zA-Z_][a-zA-Z0-9_]*$` to prevent SQL injection
-- `execute_sql_file` and `apply_migration` now validate file paths (must be absolute, end in `.sql`, no `..` traversal) to prevent path traversal
-- New `src/security/` module with `sql-sanitizer.ts`, `url-validator.ts`, `auth.ts`, and `index.ts`
-- Removed debug `console.error` statements from `stdio.ts`
-- Fixed hardcoded `"accessToken"` to use actual variable in `stdio.ts`
-- Updated README with security notice and new flag documentation
+- **破坏性变更**：`--read-only` 标志默认值从 `false` 改为 `true`。需要写访问权限的用户必须通过新的 `--write` 标志显式启用。
+- 新增 `--write` 标志，显式禁用只读模式（覆盖 `--read-only`）
+- 新增 `--api-key` 标志和 `MCP_API_KEY` 环境变量，用于启动时 API Key 校验
+- `execute_sql` 和 `execute_sql_file` 工具在只读模式下将所有 SQL 包装在只读事务中（`BEGIN; SET LOCAL transaction_read_only = on; <sql>; ROLLBACK;`）
+- 所有接收 URL 的工具现在会根据白名单（`*.supabase.opentrust.net`、`*.supabase.co`、localhost）校验 URL，以防止 SSRF
+- 所有接收 SQL 标识符的工具（`list_table`、`list_columns`、`list_indexes`）现在会根据 `^[a-zA-Z_][a-zA-Z0-9_]*$` 校验标识符，以防止 SQL 注入
+- `execute_sql_file` 和 `apply_migration` 现在会校验文件路径（必须为绝对路径、以 `.sql` 结尾、不含 `..` 穿越序列），以防止路径穿越
+- 新增 `src/security/` 模块，包含 `sql-sanitizer.ts`、`url-validator.ts`、`auth.ts` 和 `index.ts`
+- 移除 `stdio.ts` 中的调试 `console.error` 语句
+- 修复 `stdio.ts` 中硬编码的 `"accessToken"` 为实际变量
+- 更新 README，添加安全公告和新标志文档
 
-## Capabilities
+## 能力
 
-### New Capabilities
-- `read-only-transaction`: Default read-only mode with transaction wrapping for SQL execution tools, opt-in write mode via `--write` flag
-- `sql-injection-prevention`: Identifier validation and literal escaping for all tools that construct SQL from user input
-- `ssrf-prevention`: URL hostname allowlist validation for all URL-accepting tools
-- `path-traversal-prevention`: File path validation for `execute_sql_file` and `apply_migration` tools
-- `api-key-auth`: Startup-time API key validation with minimum length, pattern checks, and timing-safe comparison
+### 新增能力
+- `read-only-transaction`：默认只读模式，SQL 执行工具使用事务包装，通过 `--write` 标志显式启用写模式
+- `sql-injection-prevention`：对所有从用户输入构造 SQL 的工具进行标识符校验和字面量转义
+- `ssrf-prevention`：对所有接收 URL 的工具进行主机名白名单校验
+- `path-traversal-prevention`：对 `execute_sql_file` 和 `apply_migration` 工具进行文件路径校验
+- `api-key-auth`：启动时 API Key 校验，包含最小长度、模式检查和时序安全比较
 
-### Modified Capabilities
-<!-- No existing specs to modify -->
+### 修改的能力
+<!-- 无需修改的现有规范 -->
 
-## Impact
+## 影响
 
-- **Code**: New `src/security/` module (4 files), modifications to `aliyun-tools.ts`, `database-operation-tools.ts`, `stdio.ts`, `server.ts`, `api-platform.ts`, `README.md`
-- **API**: CLI flags changed — `--read-only` defaults to true, new `--write` and `--api-key` flags
-- **Behavior**: All SQL execution tools now run in read-only transactions by default; URL validation rejects non-allowlist hosts; identifier validation rejects special characters
-- **Dependencies**: No new external dependencies — all security utilities are pure TypeScript
+- **代码**：新增 `src/security/` 模块（4 个文件），修改 `aliyun-tools.ts`、`database-operation-tools.ts`、`stdio.ts`、`server.ts`、`api-platform.ts`、`README.md`
+- **API**：CLI 标志变更 — `--read-only` 默认为 true，新增 `--write` 和 `--api-key` 标志
+- **行为**：所有 SQL 执行工具默认在只读事务中运行；URL 校验拒绝非白名单主机；标识符校验拒绝特殊字符
+- **依赖**：无新增外部依赖 — 所有安全工具均为纯 TypeScript 实现
