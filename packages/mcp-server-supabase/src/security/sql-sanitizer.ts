@@ -108,11 +108,11 @@ export function escapeSqlIdentifier(identifier: string): string {
 export function assertReadOnlyQuery(sql: string): void {
   const normalizedSql = sql.toUpperCase().trim();
 
-  // Remove string literals and comments to avoid false positives
+  // Remove string literals, dollar-quoted strings, and comments to avoid false positives
   const cleanedSql = normalizedSql
     .replace(/'(?:[^']*|'')*'/g, '')     // Remove string literals (handles escaped quotes)
-    .replace(/\$\$[\s\S]*?\$\$/g, '')       // Remove dollar-quoted strings
-    .replace(/\$[a-zA-Z_]\w*\$[\s\S]*?\$[a-zA-Z_]\w*\$/g, '') // Remove tagged dollar-quotes
+    .replace(/\$\$(?:[^$]*(?:\$(?!\$)[^$]*)*)*\$\$/g, '')  // Remove untagged dollar-quoted strings ($$...$$)
+    .replace(/\$([a-zA-Z_]\w*)\$[\s\S]*?\$\1\$/g, '') // Remove tagged dollar-quotes with matching tags ($tag$...$tag$)
     .replace(/--.*$/gm, '')              // Remove single-line comments
     .replace(/\/\*[\s\S]*?\*\//g, '')     // Remove multi-line comments
     .trim();
@@ -147,20 +147,26 @@ export function assertReadOnlyQuery(sql: string): void {
 export function assertNoTransactionControl(sql: string): void {
   const normalizedSql = sql.toUpperCase().trim();
 
-  // Remove string literals and comments to avoid false positives
+  // Remove string literals, dollar-quoted strings, and comments to avoid false positives
   const cleanedSql = normalizedSql
     .replace(/'(?:[^']*|'')*'/g, '')     // Remove string literals (handles escaped quotes)
-    .replace(/\$\$[\s\S]*?\$\$/g, '')       // Remove dollar-quoted strings
-    .replace(/\$[a-zA-Z_]\w*\$[\s\S]*?\$[a-zA-Z_]\w*\$/g, '') // Remove tagged dollar-quotes
+    .replace(/\$\$(?:[^$]*(?:\$(?!\$)[^$]*)*)*\$\$/g, '')  // Remove untagged dollar-quoted strings ($$...$$)
+    .replace(/\$([a-zA-Z_]\w*)\$[\s\S]*?\$\1\$/g, '') // Remove tagged dollar-quotes with matching tags ($tag$...$tag$)
     .replace(/--.*$/gm, '')              // Remove single-line comments
     .replace(/\/\*[\s\S]*?\*\//g, '')     // Remove multi-line comments
     .trim();
 
-  // Check for transaction control statements that could break read-only wrapping
-  const TRANSACTION_CONTROL_PATTERN = /\b(BEGIN|START\s+TRANSACTION|COMMIT|ROLLBACK|END)\b/i;
+  // Check for transaction control statements that could break read-only wrapping.
+  // 'END' is excluded because it collides with CASE...END syntax.
+  // In PostgreSQL, COMMIT is the standard way to end a transaction;
+  // bare 'END' as transaction control is rare and the risk of CASE...END
+  // false positives outweighs the marginal benefit of catching it.
+  // The database-level SET LOCAL transaction_read_only = on provides the
+  // authoritative guard regardless.
+  const TRANSACTION_CONTROL_PATTERN = /\b(BEGIN|START\s+TRANSACTION|COMMIT|ROLLBACK)\b/i;
   if (TRANSACTION_CONTROL_PATTERN.test(cleanedSql)) {
     throw new Error(
-      'Transaction control statements (BEGIN/START TRANSACTION/COMMIT/ROLLBACK/END) ' +
+      'Transaction control statements (BEGIN/START TRANSACTION/COMMIT/ROLLBACK) ' +
       'are not allowed in read-only mode. The server will manage transaction boundaries automatically. ' +
       'Use the --write flag to enable write operations.'
     );

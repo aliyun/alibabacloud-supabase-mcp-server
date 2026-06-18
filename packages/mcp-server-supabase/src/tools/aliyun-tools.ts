@@ -3,7 +3,7 @@ import { type Tool, tool } from '@supabase/mcp-utils';
 import { readFileSync } from 'node:fs';
 import { z } from 'zod';
 import { injectableTool } from './util.js';
-import { validateSqlIdentifier, validateSchemaNames, escapeSqlLiteral, escapeSqlIdentifier, wrapInReadOnlyTransaction, validateSqlFilePath } from '../security/sql-sanitizer.js';
+import { validateSqlIdentifier, validateSchemaNames, escapeSqlLiteral, escapeSqlIdentifier, wrapInReadOnlyTransaction, validateSqlFilePath, assertReadOnlyQuery } from '../security/sql-sanitizer.js';
 import { validateUrl } from '../security/url-validator.js';
 
 export type AliyunToolsOptions = {
@@ -344,9 +344,11 @@ export async function getAliyunTools({
         // SSRF prevention: validate the URL
         const validatedUrl = validateUrl(url);
 
-        // Read-only mode: wrap SQL in read-only transaction as primary defense
+        // Read-only mode: defense-in-depth — first reject write keywords at app level,
+        // then wrap SQL in read-only transaction as the authoritative database-level guard
         if (readOnly) {
           try {
+            assertReadOnlyQuery(sql);
             sql = wrapInReadOnlyTransaction(sql);
           } catch (e) {
             return {
@@ -354,7 +356,7 @@ export async function getAliyunTools({
             };
           }
         }
-        
+
         try {
           const result = await platform.executeSqlViaUrl({ url: validatedUrl, api_key, sql });
           return {
@@ -402,9 +404,11 @@ export async function getAliyunTools({
           };
         }
 
-        // Read-only mode: wrap SQL in read-only transaction as primary defense
+        // Read-only mode: defense-in-depth — first reject write keywords at app level,
+        // then wrap SQL in read-only transaction as the authoritative database-level guard
         if (readOnly) {
           try {
+            assertReadOnlyQuery(sql);
             sql = wrapInReadOnlyTransaction(sql);
           } catch (e) {
             return {

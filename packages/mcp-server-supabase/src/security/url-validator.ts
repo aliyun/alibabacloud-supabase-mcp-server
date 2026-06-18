@@ -6,17 +6,24 @@
  */
 
 /**
+ * Whether localhost should be allowed in URL validation.
+ * In production environments, set MCP_ENV=production to disable localhost access.
+ * Defaults to allowing localhost for development convenience.
+ */
+const IS_PRODUCTION = process.env.MCP_ENV === 'production';
+
+/**
  * Allowed hostname patterns for Supabase project URLs.
  * Only URLs matching these patterns will be permitted.
+ * localhost and 127.0.0.1 are excluded in production (MCP_ENV=production).
  */
 const ALLOWED_HOSTNAME_PATTERNS = [
   // Aliyun Supabase instances
   /\.supabase\.opentrust\.net$/,
   // Supabase cloud instances
   /\.supabase\.co$/,
-  // Local development (only for non-production use)
-  /^localhost$/,
-  /^127\.0\.0\.1$/,
+  // Local development — disabled in production
+  ...(IS_PRODUCTION ? [] : [/^localhost$/, /^127\.0\.0\.1$/]),
 ];
 
 /**
@@ -86,8 +93,9 @@ export function validateUrl(url: string): string {
 
   const { protocol, hostname, port } = parsedUrl;
 
-  // Must use HTTPS (HTTP only allowed for localhost)
-  if (protocol === 'http:' && hostname !== 'localhost' && hostname !== '127.0.0.1') {
+  // Must use HTTPS (HTTP only allowed for localhost in non-production)
+  const isLocalhost = hostname === 'localhost' || hostname === '127.0.0.1';
+  if (protocol === 'http:' && !isLocalhost) {
     throw new Error(
       `URL must use HTTPS protocol. HTTP is only allowed for localhost. Got: "${url}"`
     );
@@ -111,9 +119,11 @@ export function validateUrl(url: string): string {
     );
   }
 
-  // Check if hostname is a direct IP address that's blocked
+  // Check if hostname is a direct IP address that's blocked.
+  // Skip this check for allowlisted hostnames (e.g., 127.0.0.1 is allowlisted
+  // for local development but also falls in the loopback blocked range).
   const ipv4Regex = /^(\d{1,3}\.){3}\d{1,3}$/;
-  if (ipv4Regex.test(hostname) && isBlockedIp(hostname)) {
+  if (!isAllowedHost && ipv4Regex.test(hostname) && isBlockedIp(hostname)) {
     throw new Error(
       `URL hostname "${hostname}" is a private/internal IP address which is not allowed.`
     );
@@ -121,8 +131,8 @@ export function validateUrl(url: string): string {
 
   // Check port (only allow default ports)
   if (port && port !== '443' && port !== '80') {
-    // Allow non-standard ports only for localhost
-    if (hostname !== 'localhost' && hostname !== '127.0.0.1') {
+    // Allow non-standard ports only for localhost (non-production)
+    if (!isLocalhost) {
       throw new Error(
         `URL with non-standard port "${port}" is not allowed. Only default ports (80, 443) are permitted.`
       );
