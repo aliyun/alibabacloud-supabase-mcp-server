@@ -2,6 +2,7 @@ import { stripIndent } from 'common-tags';
 import columnsSql from './columns.sql';
 import extensionsSql from './extensions.sql';
 import tablesSql from './tables.sql';
+import { escapeSqlLiteral } from '../security/sql-sanitizer.js';
 
 export const SYSTEM_SCHEMAS = [
   'information_schema',
@@ -27,9 +28,9 @@ export function listTablesSql(schemas: string[] = []) {
   sql += '\n';
 
   if (schemas.length > 0) {
-    sql += `where schema in (${schemas.map((s) => `'${s}'`).join(',')})`;
+    sql += `where schema in (${schemas.map((s) => escapeSqlLiteral(s)).join(',')})`;
   } else {
-    sql += `where schema not in (${SYSTEM_SCHEMAS.map((s) => `'${s}'`).join(',')})`;
+    sql += `where schema not in (${SYSTEM_SCHEMAS.map((s) => escapeSqlLiteral(s)).join(',')})`;
   }
 
   return sql;

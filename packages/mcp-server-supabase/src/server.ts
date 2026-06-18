@@ -64,6 +64,7 @@ export type SupabaseMcpServerOptions = {
 
   /**
    * Executes database queries in read-only mode if true.
+   * Defaults to true for security. Use --write flag to enable write operations.
    */
   readOnly?: boolean;
 

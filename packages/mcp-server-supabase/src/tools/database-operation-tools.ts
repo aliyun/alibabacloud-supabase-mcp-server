@@ -8,6 +8,7 @@ import {
 } from '../pg-meta/types.js';
 import type { SupabasePlatform } from '../platform/types.js';
 import { injectableTool } from './util.js';
+import { validateSqlFilePath, validateSchemaNames, escapeSqlLiteral } from '../security/sql-sanitizer.js';
 
 export type DatabaseOperationToolsOptions = {
   platform: SupabasePlatform;
@@ -34,7 +35,8 @@ export function getDatabaseOperationTools({
       }),
       inject: { project_id },
       execute: async ({ project_id, schemas }) => {
-        const query = listTablesSql(schemas);
+        const validatedSchemas = validateSchemaNames(schemas);
+        const query = listTablesSql(validatedSchemas);
         const data = await platform.executeSql(project_id, {
           query,
           read_only: readOnly,
@@ -129,6 +131,9 @@ export function getDatabaseOperationTools({
       }),
       inject: { project_id },
       execute: async ({ file_path, project_id }) => {
+        // Path traversal prevention: validate the file path
+        validateSqlFilePath(file_path);
+
         let query: string;
         try {
           query = readFileSync(file_path, 'utf-8');

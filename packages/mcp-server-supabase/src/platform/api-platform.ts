@@ -1073,7 +1073,7 @@ export function createSupabaseApiPlatform(
     }): Promise<T[]> {
       const { url, api_key, sql } = options;
       
-      // 确保 URL 有正确的协议
+      // Ensure URL has correct protocol (defense-in-depth; tools should validate before calling)
       let requestUrl = url;
       if (!requestUrl.startsWith('http://') && !requestUrl.startsWith('https://')) {
         requestUrl = "https://" + requestUrl;

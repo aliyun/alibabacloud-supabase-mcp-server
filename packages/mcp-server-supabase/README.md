@@ -1,6 +1,8 @@
 # Aliyun Supabase MCP Server
 
-> 🎉 **Supabase on Alibaba Cloud is FREE!** Deploy Supabase for free on Alibaba Cloud today.
+> **SECURITY NOTICE**: This MCP server allows AI assistants to execute arbitrary SQL queries against your database. By default, the server runs in **read-only mode** to prevent accidental data modification. Only use the `--write` flag if you understand the risks. See [Security](#security) section for details.
+
+> Supabase on Alibaba Cloud is FREE! Deploy Supabase for free on Alibaba Cloud today.
 
 > Connect your Supabase projects to Cursor, Claude, Windsurf, Lingma, Qoder, and other AI assistants.
 
@@ -110,16 +112,20 @@ When `--region-id` is specified:
 
 > **Note:** Both `--project-id` and `--region-id` are optional. If not specified, tools will work as before, requiring you to provide these parameters when calling tools.
 
-### Read-Only Mode
+### Read-Only Mode (Default)
 
-For enhanced security, especially when working with production databases, you can enable read-only mode by adding the `--read-only` flag. In read-only mode:
+**By default, the server runs in read-only mode for security.** In read-only mode:
 
-- The `execute_sql` tool will automatically wrap SQL queries in read-only transactions
-- All write operations (CREATE, DROP, ALTER, INSERT, UPDATE, DELETE, etc.) are blocked
-- Only SELECT queries and other read operations are permitted
-- The server will reject any attempts to modify data or schema
+- The `execute_sql` and `execute_sql_file` tools automatically wrap SQL queries in read-only transactions
+- All write operations (CREATE, DROP, ALTER, INSERT, UPDATE, DELETE, etc.) are wrapped in a read-only transaction and rolled back
+- Only SELECT queries and other read operations will succeed
+- The `apply_migration` tool is disabled
 
-Enable read-only mode by adding `--read-only` to your args:
+> **Note:** Read-only mode is enabled by default. This is a security measure to protect against accidental data modification.
+
+### Enabling Write Operations
+
+If you need write access, add the `--write` flag to explicitly opt-in:
 
 ```json
 {
@@ -130,7 +136,7 @@ Enable read-only mode by adding `--read-only` to your args:
         "-y",
         "@aliyun-supabase/mcp-server-supabase@latest",
         "--features=aliyun",
-        "--read-only"
+        "--write"
       ],
       "env": {
         "ALIBABA_CLOUD_ACCESS_KEY_ID": "<YOUR_AK>",
@@ -141,7 +147,33 @@ Enable read-only mode by adding `--read-only` to your args:
 }
 ```
 
-> **Note:** When `--read-only` mode is enabled, write operations will automatically be wrapped in a read-only transaction that will be rolled back, ensuring no data changes are committed.
+> **WARNING:** Enabling write operations allows the AI assistant to modify your database schema and data. Only use this in non-production environments or when you fully understand the risks.
+
+### API Key Authentication
+
+When exposing the MCP server over HTTP (not just stdio), you must configure an API key for authentication. The key must be at least 32 characters long:
+
+```json
+{
+  "mcpServers": {
+    "supabase": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@aliyun-supabase/mcp-server-supabase@latest",
+        "--features=aliyun",
+        "--api-key=your-secure-random-api-key-at-least-32-chars"
+      ],
+      "env": {
+        "ALIBABA_CLOUD_ACCESS_KEY_ID": "<YOUR_AK>",
+        "ALIBABA_CLOUD_ACCESS_KEY_SECRET": "<YOUR_SK>"
+      }
+    }
+  }
+}
+```
+
+You can also set the API key via the `MCP_API_KEY` environment variable.
 
 ## Tools
 
@@ -207,11 +239,23 @@ The Aliyun tools are organized into the following categories:
 - **`download_storage_file`**: Downloads a file from a storage bucket in a Supabase project on Aliyun. Requires the project's PublicConnectUrl as url and serviceRoleKey as api_key obtained from other tools. Returns file content as base64-encoded string.
 - **`delete_storage_file`**: Deletes one or more files from a storage bucket in a Supabase project on Aliyun. Requires the project's PublicConnectUrl as url and serviceRoleKey as api_key obtained from other tools. Can delete a single file or multiple files at once.
 
-## Security Risks
+## Security
 
-Connecting any data source to an LLM carries inherent risks, especially when it stores sensitive data. Supabase is no exception, so it's important to discuss what risks you should be aware of and extra precautions you can take to lower them.
+> **DISCLAIMER**: This MCP server provides tools that can execute arbitrary SQL against your database. While security measures are in place (read-only mode by default, SQL injection prevention, SSRF protection), you are responsible for securing your deployment. Use at your own risk.
+
+### Built-in Security Measures
+
+This server implements the following security measures:
+
+1. **Default Read-Only Mode**: SQL queries are wrapped in read-only transactions by default. Use `--write` to enable write operations.
+2. **SQL Injection Prevention**: Tools like `list_table`, `list_columns`, and `list_indexes` validate and sanitize all input parameters before constructing SQL queries.
+3. **SSRF Prevention**: All URLs are validated against an allowlist of permitted domains (`*.supabase.opentrust.net`, `*.supabase.co`). Requests to private/internal IP addresses are blocked.
+4. **Path Traversal Prevention**: The `execute_sql_file` tool validates file paths to prevent directory traversal attacks.
+5. **API Key Authentication**: When using HTTP transport, an API key (minimum 32 characters) must be configured.
 
 ### Prompt Injection
+
+Connecting any data source to an LLM carries inherent risks, especially when it stores sensitive data. Supabase is no exception, so it's important to discuss what risks you should be aware of and extra precautions you can take to lower them.
 
 The primary attack vector unique to LLMs is prompt injection, where an LLM might be tricked into following untrusted commands that live within user content. An example attack could look something like this:
 

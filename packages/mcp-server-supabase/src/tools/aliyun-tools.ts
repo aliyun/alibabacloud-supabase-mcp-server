@@ -3,6 +3,8 @@ import { type Tool, tool } from '@supabase/mcp-utils';
 import { readFileSync } from 'node:fs';
 import { z } from 'zod';
 import { injectableTool } from './util.js';
+import { validateSqlIdentifier, validateSchemaNames, escapeSqlLiteral, escapeSqlIdentifier, wrapInReadOnlyTransaction, validateSqlFilePath } from '../security/sql-sanitizer.js';
+import { validateUrl } from '../security/url-validator.js';
 
 export type AliyunToolsOptions = {
   platform: SupabasePlatform;
@@ -20,15 +22,8 @@ export type AliyunToolsOptions = {
 };
 
 /**
- * 对正则表达式中的特殊字符进行转义，防止正则注入。
- */
-const escapeRegExp = (str: string): string => {
-  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-};
-
-/**
- * 打印 fetch 失败的详细信息，便于排查网络层问题
- * （DNS、TLS、连接超时、代理、证书等）。
+ * Logs detailed fetch failure information for debugging
+ * network issues (DNS, TLS, timeouts, proxies, certificates).
  */
 const logFetchFailure = (err: unknown, context: string): void => {
   console.error(`=== Fetch failure in ${context} ===`);
@@ -71,11 +66,6 @@ export async function getAliyunTools({
   aliyunProjectId,
   aliyunRegionId,
 }: AliyunToolsOptions): Promise<Record<string, Tool>> {
-  
-  const WRITE_KEYWORDS = [
-    'CREATE', 'DROP', 'ALTER', 'TRUNCATE',
-    'INSERT', 'UPDATE', 'DELETE', 'MERGE', 'REPLACE'
-  ];
 
   // Prepare inject values for tools that need project_id and/or region_id
   const project_id = aliyunProjectId;
@@ -344,45 +334,29 @@ export async function getAliyunTools({
     }),
 
     execute_sql: tool({
-      description: 'Executes custom SQL queries on a Supabase project database via the TypeScript fetch interface. Requires PublicConnectUrl and serviceRoleKey.',
+      description: 'Executes custom SQL queries on a Supabase project database via the TypeScript fetch interface. Requires PublicConnectUrl and serviceRoleKey. WARNING: This tool allows arbitrary SQL execution. Use --write flag to enable write operations; by default only read-only queries are allowed.',
       parameters: z.object({
         url: z.string().describe('PublicConnectUrl for the Supabase project'),
         api_key: z.string().describe('serviceRoleKey for authentication'),
         sql: z.string().describe('SQL query to execute')
       }),
       execute: async ({ url, api_key, sql }) => {
-        // Check for DDL operations in read-only mode
+        // SSRF prevention: validate the URL
+        const validatedUrl = validateUrl(url);
+
+        // Read-only mode: wrap SQL in read-only transaction as primary defense
         if (readOnly) {
-          const upperSql = sql.toUpperCase().trim();
-          const isWriteOperation = WRITE_KEYWORDS.some(keyword => {
-            const escapedKeyword = escapeRegExp(keyword);
-            const regex = new RegExp(`\\b${escapedKeyword}\\b`, 'i');
-            return regex.test(upperSql);
-          });
-
-          if (isWriteOperation) {
-            const matchedKeyword = WRITE_KEYWORDS.find(k => {
-              const escaped = escapeRegExp(k);
-              return new RegExp(`\\b${escaped}\\b`, 'i').test(upperSql);
-            });
-            throw new Error(`Cannot execute write operation '${sql}' in read-only mode. Detected write keyword: ${matchedKeyword}`);
-          }
-
-          // 检测用户 SQL 是否已有事务
-          const hasTransaction = /BEGIN|START\s+TRANSACTION/i.test(sql);
-
-          // 如果已有事务，仅在事务中插入只读设置
-          if (hasTransaction) {
-            sql = sql.replace(/BEGIN/i, 'BEGIN;\nSET LOCAL transaction_read_only = on;');
-          } else {
-            // 否则包裹为只读事务
-            sql = `BEGIN;\nSET LOCAL transaction_read_only = on;\n${sql}\nROLLBACK;`;
+          try {
+            sql = wrapInReadOnlyTransaction(sql);
+          } catch (e) {
+            return {
+              content: [{ type: 'text', text: `Error: ${e instanceof Error ? e.message : String(e)}` }]
+            };
           }
         }
         
         try {
-          console.error('Debug - Attempting to execute SQL via TypeScript interface');
-          const result = await platform.executeSqlViaUrl({ url, api_key, sql });
+          const result = await platform.executeSqlViaUrl({ url: validatedUrl, api_key, sql });
           return {
             content: [{
               type: 'text',
@@ -400,13 +374,25 @@ export async function getAliyunTools({
     }),
 
     execute_sql_file: tool({
-      description: 'Executes SQL from a local file. Use this instead of execute_sql for large SQL files (e.g. database functions over 5KB) to avoid MCP transport size limits. Reads the file from disk and runs it against the Supabase project database.',
+      description: 'Executes SQL from a local file. Use this instead of execute_sql for large SQL files (e.g. database functions over 5KB) to avoid MCP transport size limits. Reads the file from disk and runs it against the Supabase project database. WARNING: In read-only mode (default), all SQL is wrapped in a read-only transaction. Use --write flag to enable write operations.',
       parameters: z.object({
         url: z.string().describe('PublicConnectUrl for the Supabase project'),
         api_key: z.string().describe('serviceRoleKey for authentication'),
-        file_path: z.string().describe('Absolute path to the SQL file on the local filesystem')
+        file_path: z.string().describe('Absolute path to the SQL file on the local filesystem. Must end with .sql and not contain directory traversal sequences.')
       }),
       execute: async ({ url, api_key, file_path }) => {
+        // SSRF prevention: validate the URL
+        const validatedUrl = validateUrl(url);
+
+        // Path traversal prevention: validate the file path
+        try {
+          validateSqlFilePath(file_path);
+        } catch (err) {
+          return {
+            content: [{ type: 'text', text: `Error: ${err instanceof Error ? err.message : String(err)}` }]
+          };
+        }
+
         let sql: string;
         try {
           sql = readFileSync(file_path, 'utf-8');
@@ -416,36 +402,19 @@ export async function getAliyunTools({
           };
         }
 
-        // Check for DDL operations in read-only mode
+        // Read-only mode: wrap SQL in read-only transaction as primary defense
         if (readOnly) {
-          const upperSql = sql.toUpperCase().trim();
-          const isWriteOperation = WRITE_KEYWORDS.some(keyword => {
-            const escapedKeyword = escapeRegExp(keyword);
-            const regex = new RegExp(`\\b${escapedKeyword}\\b`, 'i');
-            return regex.test(upperSql);
-          });
-
-          if (isWriteOperation) {
-            const matchedKeyword = WRITE_KEYWORDS.find(k => {
-              const escaped = escapeRegExp(k);
-              return new RegExp(`\\b${escaped}\\b`, 'i').test(upperSql);
-            });
+          try {
+            sql = wrapInReadOnlyTransaction(sql);
+          } catch (e) {
             return {
-              content: [{ type: 'text', text: `Error: Cannot execute write operation in read-only mode. Detected write keyword: ${matchedKeyword}` }]
+              content: [{ type: 'text', text: `Error: ${e instanceof Error ? e.message : String(e)}` }]
             };
-          }
-
-          const hasTransaction = /BEGIN|START\s+TRANSACTION/i.test(sql);
-          if (hasTransaction) {
-            sql = sql.replace(/BEGIN/i, 'BEGIN;\nSET LOCAL transaction_read_only = on;');
-          } else {
-            sql = `BEGIN;\nSET LOCAL transaction_read_only = on;\n${sql}\nROLLBACK;`;
           }
         }
 
         try {
-          console.error('Debug - Attempting to execute SQL file via TypeScript interface');
-          const result = await platform.executeSqlViaUrl({ url, api_key, sql });
+          const result = await platform.executeSqlViaUrl({ url: validatedUrl, api_key, sql });
           return {
             content: [{
               type: 'text',
@@ -471,25 +440,27 @@ export async function getAliyunTools({
       }),
       execute: async ({ url, api_key, schemas }) => {
         try {
-          // 构建 SQL 查询
+          // SSRF prevention: validate the URL
+          const validatedUrl = validateUrl(url);
+
+          // Build SQL query with validated identifiers to prevent SQL injection
           let sql: string;
           if (schemas && schemas.length > 0) {
-            // 如果指定了 schemas，只查询这些 schema
-            const schemaList = schemas.map(s => `'${s}'`).join(',');
+            // Validate all schema names to prevent SQL injection
+            const validatedSchemas = validateSchemaNames(schemas);
+            const schemaList = validatedSchemas.map(s => `${escapeSqlLiteral(s)}`).join(',');
             sql = `SELECT table_schema, table_name, table_type 
                     FROM information_schema.tables 
                     WHERE table_schema IN (${schemaList})
                     ORDER BY table_schema, table_name`;
           } else {
-            // 如果没有指定 schemas，排除系统表
             sql = `SELECT table_schema, table_name, table_type 
                     FROM information_schema.tables 
                     WHERE table_schema NOT IN ('information_schema', 'pg_catalog', 'pg_toast')
                     ORDER BY table_schema, table_name`;
           }
 
-          // 使用平台接口执行 SQL
-          const result = await platform.executeSqlViaUrl({ url, api_key, sql });
+          const result = await platform.executeSqlViaUrl({ url: validatedUrl, api_key, sql });
           return {
             content: [{
               type: 'text',
@@ -517,7 +488,14 @@ export async function getAliyunTools({
       }),
       execute: async ({ url, api_key, table_name, schema = 'public' }) => {
         try {
-          // 构建 SQL 查询
+          // SSRF prevention: validate the URL
+          const validatedUrl = validateUrl(url);
+
+          // Validate identifiers to prevent SQL injection
+          validateSqlIdentifier(schema, 'schema');
+          validateSqlIdentifier(table_name, 'table_name');
+
+          // Build SQL query using escaped identifiers
           const sql = `
             SELECT 
               column_name,
@@ -529,12 +507,11 @@ export async function getAliyunTools({
               numeric_scale,
               ordinal_position
             FROM information_schema.columns 
-            WHERE table_schema = '${schema}' AND table_name = '${table_name}'
+            WHERE table_schema = ${escapeSqlLiteral(schema)} AND table_name = ${escapeSqlLiteral(table_name)}
             ORDER BY ordinal_position
           `;
 
-          // 使用平台接口执行 SQL
-          const result = await platform.executeSqlViaUrl({ url, api_key, sql });
+          const result = await platform.executeSqlViaUrl({ url: validatedUrl, api_key, sql });
           return {
             content: [{
               type: 'text',
@@ -560,7 +537,13 @@ export async function getAliyunTools({
       }),
       execute: async ({ url, api_key, schema = 'public' }) => {
         try {
-          // 构建 SQL 查询
+          // SSRF prevention: validate the URL
+          const validatedUrl = validateUrl(url);
+
+          // Validate schema name to prevent SQL injection
+          validateSqlIdentifier(schema, 'schema');
+
+          // Build SQL query using escaped literal
           const sql = `
             SELECT 
               schemaname,
@@ -568,12 +551,11 @@ export async function getAliyunTools({
               indexname,
               indexdef
             FROM pg_indexes
-            WHERE schemaname = '${schema}'
+            WHERE schemaname = ${escapeSqlLiteral(schema)}
             ORDER BY tablename, indexname
           `;
 
-          // 使用平台接口执行 SQL
-          const result = await platform.executeSqlViaUrl({ url, api_key, sql });
+          const result = await platform.executeSqlViaUrl({ url: validatedUrl, api_key, sql });
           return {
             content: [{
               type: 'text',
@@ -598,7 +580,9 @@ export async function getAliyunTools({
       }),
       execute: async ({ url, api_key }) => {
         try {
-          // 构建 SQL 查询
+          // SSRF prevention: validate the URL
+          const validatedUrl = validateUrl(url);
+
           const sql = `
             SELECT 
               extname as extension_name,
@@ -610,8 +594,7 @@ export async function getAliyunTools({
             ORDER BY extname
           `;
 
-          // 使用平台接口执行 SQL
-          const result = await platform.executeSqlViaUrl({ url, api_key, sql });
+          const result = await platform.executeSqlViaUrl({ url: validatedUrl, api_key, sql });
           return {
             content: [{
               type: 'text',
@@ -653,15 +636,14 @@ export async function getAliyunTools({
         }
         
         try {
-          // 强制使用 index.ts 作为文件名
+          // SSRF prevention: validate the URL
+          const validatedUrl = validateUrl(url);
+
+          // Force using index.ts as the filename
           const entrypoint_path = 'index.ts';
           
-          // 构建 API 端点
-          let apiUrl = url;
-          if (!apiUrl.startsWith('http://') && !apiUrl.startsWith('https://')) {
-            apiUrl = "https://" + apiUrl;
-          }
-          const apiEndpoint = `${apiUrl}/api/edge-api/v1/projects/default/functions/deploy?slug=${encodeURIComponent(slug)}`;
+          // Build API endpoint using validated URL
+          const apiEndpoint = `${validatedUrl}/api/edge-api/v1/projects/default/functions/deploy?slug=${encodeURIComponent(slug)}`;
 
           // 构建 metadata JSON
           const metadata = {
@@ -810,12 +792,9 @@ export async function getAliyunTools({
       }),
       execute: async ({ url, api_key }) => {
         try {
-          // 构建 API 端点
-          let apiUrl = url;
-          if (!apiUrl.startsWith('http://') && !apiUrl.startsWith('https://')) {
-            apiUrl = "https://" + apiUrl;
-          }
-          const apiEndpoint = `${apiUrl}/api/edge-api/v1/projects/default/functions`;
+          // SSRF prevention: validate the URL
+          const validatedUrl = validateUrl(url);
+          const apiEndpoint = `${validatedUrl}/api/edge-api/v1/projects/default/functions`;
 
           // 使用 Node.js fetch API 发送 GET 请求
           const response = await fetch(apiEndpoint, {
@@ -857,12 +836,9 @@ export async function getAliyunTools({
       }),
       execute: async ({ url, api_key, function_name, data }) => {
         try {
-          // 构建 API 端点
-          let apiUrl = url;
-          if (!apiUrl.startsWith('http://') && !apiUrl.startsWith('https://')) {
-            apiUrl = "https://" + apiUrl;
-          }
-          const apiEndpoint = `${apiUrl}/functions/v1/${encodeURIComponent(function_name)}`;
+          // SSRF prevention: validate the URL
+          const validatedUrl = validateUrl(url);
+          const apiEndpoint = `${validatedUrl}/functions/v1/${encodeURIComponent(function_name)}`;
 
           // 构建请求体
           const requestBody = data ? JSON.stringify(data) : undefined;
@@ -917,12 +893,9 @@ export async function getAliyunTools({
       }),
       execute: async ({ url, api_key, function_name }) => {
         try {
-          // 构建 API 端点
-          let apiUrl = url;
-          if (!apiUrl.startsWith('http://') && !apiUrl.startsWith('https://')) {
-            apiUrl = "https://" + apiUrl;
-          }
-          const apiEndpoint = `${apiUrl}/api/edge-api/v1/projects/default/functions/${encodeURIComponent(function_name)}`;
+          // SSRF prevention: validate the URL
+          const validatedUrl = validateUrl(url);
+          const apiEndpoint = `${validatedUrl}/api/edge-api/v1/projects/default/functions/${encodeURIComponent(function_name)}`;
 
           // 使用 Node.js fetch API 发送 DELETE 请求
           const response = await fetch(apiEndpoint, {
@@ -975,8 +948,9 @@ export async function getAliyunTools({
       }),
       execute: async ({ url, api_key, page, per_page }) => {
         try {
-          // 使用平台接口列出用户
-          const result = await platform.listAuthUsersViaUrl({ url, api_key, page, per_page });
+          // SSRF prevention: validate the URL
+          const validatedUrl = validateUrl(url);
+          const result = await platform.listAuthUsersViaUrl({ url: validatedUrl, api_key, page, per_page });
           return {
             content: [{
               type: 'text',
@@ -1003,8 +977,9 @@ export async function getAliyunTools({
       }),
       execute: async ({ url, api_key, user_id }) => {
         try {
-          // 使用平台接口获取用户
-          const result = await platform.getAuthUserViaUrl({ url, api_key, user_id });
+          // SSRF prevention: validate the URL
+          const validatedUrl = validateUrl(url);
+          const result = await platform.getAuthUserViaUrl({ url: validatedUrl, api_key, user_id });
           return {
             content: [{
               type: 'text',
@@ -1038,9 +1013,10 @@ export async function getAliyunTools({
       }),
       execute: async ({ url, api_key, email, phone, password, email_confirm, phone_confirm, user_metadata, app_metadata, ban_duration }) => {
         try {
-          // 使用平台接口创建用户
+          // SSRF prevention: validate the URL
+          const validatedUrl = validateUrl(url);
           const result = await platform.createAuthUserViaUrl({
-            url,
+            url: validatedUrl,
             api_key,
             email,
             phone,
@@ -1077,8 +1053,9 @@ export async function getAliyunTools({
       }),
       execute: async ({ url, api_key, user_id }) => {
         try {
-          // 使用平台接口删除用户
-          await platform.deleteAuthUserViaUrl({ url, api_key, user_id });
+          // SSRF prevention: validate the URL
+          const validatedUrl = validateUrl(url);
+          await platform.deleteAuthUserViaUrl({ url: validatedUrl, api_key, user_id });
           return {
             content: [{
               type: 'text',
@@ -1113,9 +1090,10 @@ export async function getAliyunTools({
       }),
       execute: async ({ url, api_key, user_id, email, phone, password, email_confirm, phone_confirm, user_metadata, app_metadata, ban_duration }) => {
         try {
-          // 使用平台接口更新用户
+          // SSRF prevention: validate the URL
+          const validatedUrl = validateUrl(url);
           const result = await platform.updateAuthUserViaUrl({
-            url,
+            url: validatedUrl,
             api_key,
             user_id,
             email,
@@ -1153,7 +1131,9 @@ export async function getAliyunTools({
       }),
       execute: async ({ url, api_key }) => {
         try {
-          const result = await platform.listStorageBucketsViaUrl({ url, api_key });
+          // SSRF prevention: validate the URL
+          const validatedUrl = validateUrl(url);
+          const result = await platform.listStorageBucketsViaUrl({ url: validatedUrl, api_key });
           return {
             content: [{
               type: 'text',
@@ -1183,8 +1163,10 @@ export async function getAliyunTools({
       }),
       execute: async ({ url, api_key, name, public: isPublic, file_size_limit, allowed_mime_types }) => {
         try {
+          // SSRF prevention: validate the URL
+          const validatedUrl = validateUrl(url);
           const result = await platform.createStorageBucketViaUrl({
-            url,
+            url: validatedUrl,
             api_key,
             name,
             public: isPublic,
@@ -1217,7 +1199,9 @@ export async function getAliyunTools({
       }),
       execute: async ({ url, api_key, bucket_name }) => {
         try {
-          await platform.deleteStorageBucketViaUrl({ url, api_key, bucket_name });
+          // SSRF prevention: validate the URL
+          const validatedUrl = validateUrl(url);
+          await platform.deleteStorageBucketViaUrl({ url: validatedUrl, api_key, bucket_name });
           return {
             content: [{
               type: 'text',
@@ -1249,8 +1233,10 @@ export async function getAliyunTools({
       }),
       execute: async ({ url, api_key, bucket_name, path, limit, offset, sort_by_column, sort_by_order }) => {
         try {
+          // SSRF prevention: validate the URL
+          const validatedUrl = validateUrl(url);
           const result = await platform.listStorageFilesViaUrl({
-            url,
+            url: validatedUrl,
             api_key,
             bucket_name,
             path,
@@ -1291,12 +1277,13 @@ export async function getAliyunTools({
       }),
       execute: async ({ url, api_key, bucket_name, file_path, file_content, content_type, upsert }) => {
         try {
-          // 尝试将 base64 字符串解码为 ArrayBuffer
+          // SSRF prevention: validate the URL
+          const validatedUrl = validateUrl(url);
+
+          // Decode base64 content if applicable
           let fileData: string | ArrayBuffer | Blob = file_content;
           try {
-            // 检查是否是 base64 编码
             if (file_content.startsWith('data:')) {
-              // data URL 格式: data:image/png;base64,...
               const parts = file_content.split(',');
               const base64Data = parts[1];
               if (base64Data) {
@@ -1308,7 +1295,6 @@ export async function getAliyunTools({
                 fileData = bytes.buffer;
               }
             } else if (/^[A-Za-z0-9+/=]+$/.test(file_content) && file_content.length > 100) {
-              // 可能是 base64 字符串
               const binaryString = atob(file_content);
               const bytes = new Uint8Array(binaryString.length);
               for (let i = 0; i < binaryString.length; i++) {
@@ -1317,12 +1303,12 @@ export async function getAliyunTools({
               fileData = bytes.buffer;
             }
           } catch {
-            // 如果不是 base64，保持原样作为字符串
             fileData = file_content;
           }
 
+          // Note: file_path here is a storage path (not filesystem), no path traversal concern
           const result = await platform.uploadStorageFileViaUrl({
-            url,
+            url: validatedUrl,
             api_key,
             bucket_name,
             file_path,
@@ -1357,8 +1343,10 @@ export async function getAliyunTools({
       }),
       execute: async ({ url, api_key, bucket_name, file_path }) => {
         try {
+          // SSRF prevention: validate the URL
+          const validatedUrl = validateUrl(url);
           const blob = await platform.downloadStorageFileViaUrl({
-            url,
+            url: validatedUrl,
             api_key,
             bucket_name,
             file_path,
@@ -1412,8 +1400,10 @@ export async function getAliyunTools({
       }),
       execute: async ({ url, api_key, bucket_name, file_path }) => {
         try {
+          // SSRF prevention: validate the URL
+          const validatedUrl = validateUrl(url);
           const result = await platform.deleteStorageFileViaUrl({
-            url,
+            url: validatedUrl,
             api_key,
             bucket_name,
             file_path,

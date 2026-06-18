@@ -6,6 +6,7 @@ import packageJson from '../../package.json' with { type: 'json' };
 import { createSupabaseApiPlatform } from '../platform/api-platform.js';
 import { createSupabaseMcpServer } from '../server.js';
 import { parseList } from './util.js';
+import { validateApiKeyRequirements } from '../security/auth.js';
 
 const { version } = packageJson;
 
@@ -17,6 +18,8 @@ async function main() {
       ['project-id']: aliyunProjectId,
       ['region-id']: aliyunRegionId,
       ['read-only']: readOnly,
+      ['write']: writeMode,
+      ['api-key']: apiKey,
       ['api-url']: apiUrl,
       ['version']: showVersion,
       ['features']: cliFeatures,
@@ -37,7 +40,14 @@ async function main() {
       },
       ['read-only']: {
         type: 'boolean',
+        default: true,
+      },
+      ['write']: {
+        type: 'boolean',
         default: false,
+      },
+      ['api-key']: {
+        type: 'string',
       },
       ['api-url']: {
         type: 'string',
@@ -60,6 +70,36 @@ async function main() {
 
   const aliyunAccessToken = process.env.ALIYUN_ACCESS_TOKEN;
 
+  // API key validation and local-only binding enforcement
+  // Per Aliyun MCP security requirements:
+  //   1. MCP must default to local-only binding (stdio is inherently local)
+  //   2. If opening to non-local addresses, API key MUST be configured
+  const effectiveApiKey = apiKey ?? process.env.MCP_API_KEY;
+  if (effectiveApiKey) {
+    try {
+      validateApiKeyRequirements(effectiveApiKey);
+      console.error('API key validation passed. Server will require authentication for tool calls.');
+    } catch (err) {
+      console.error(`API key validation failed: ${err instanceof Error ? err.message : String(err)}`);
+      process.exit(1);
+    }
+  }
+  // NOTE: stdio transport is inherently local (pipe between parent and child process).
+  // When HTTP transport is added in the future, the following MUST be enforced:
+  //   - Default bind host: 127.0.0.1 (localhost only)
+  //   - If bind host is not loopback, require effectiveApiKey to be set
+  //   - Example enforcement:
+  //     const bindHost = options.host ?? '127.0.0.1';
+  //     if (bindHost !== '127.0.0.1' && bindHost !== 'localhost') {
+  //       if (!effectiveApiKey) {
+  //         console.error('ERROR: API key is required when binding to non-local address.');
+  //         process.exit(1);
+  //       }
+  //     }
+
+  // --write flag overrides --read-only: if --write is set, readOnly is false
+  const effectiveReadOnly = writeMode ? false : readOnly;
+
   const features = cliFeatures ? parseList(cliFeatures) : ['aliyun'];
 
   const hasAliyunFeature = features?.includes('aliyun');
@@ -71,35 +111,21 @@ async function main() {
     process.exit(1);
   }
 
-  // 增加日志来确认代码执行到了这里
-  console.error('DEBUG: Initializing platform...');
-
   const platform = createSupabaseApiPlatform({
-    accessToken: "accessToken",
+    accessToken: accessToken ?? '',
     aliyunAccessToken: aliyunAccessToken,
     apiUrl,
   });
-  
-  // 增加日志
-  console.error('DEBUG: Platform initialized. Creating MCP server...');
-
   const server = createSupabaseMcpServer({
     platform,
     projectId,
     aliyunProjectId,
     aliyunRegionId,
-    readOnly,
+    readOnly: effectiveReadOnly,
     features,
   });
-  
-  // 增加日志
-  console.error('DEBUG: MCP server created. Connecting transport...');
-
   const transport = new StdioServerTransport();
   await server.connect(transport);
-  
-  // 增加日志
-  console.error('DEBUG: Transport connected successfully.');
 }
 
 main().catch(console.error);
