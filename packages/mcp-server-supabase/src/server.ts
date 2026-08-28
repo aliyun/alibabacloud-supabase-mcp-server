@@ -108,7 +108,7 @@ export function createSupabaseMcpServer(options: SupabaseMcpServerOptions) {
     projectId,
     aliyunProjectId,
     aliyunRegionId,
-    readOnly,
+    readOnly = true,
     features,
     contentApiUrl = 'https://supabase.com/docs/api/graphql',
   } = options;

@@ -7,5 +7,5 @@
  * - API key authentication
  */
 export { validateSqlIdentifier, validateSchemaNames, escapeSqlLiteral, escapeSqlIdentifier, assertReadOnlyQuery, assertNoTransactionControl, wrapInReadOnlyTransaction, validateSqlFilePath } from './sql-sanitizer.js';
-export { validateUrl, validateAndNormalizeUrl } from './url-validator.js';
+export { validateUrl, validateAndNormalizeUrl, fetchValidatedUrl } from './url-validator.js';
 export { validateApiKeyRequirements, createApiKeyValidator, extractApiKeyFromHeaders } from './auth.js';

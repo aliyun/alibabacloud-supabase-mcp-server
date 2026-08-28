@@ -137,7 +137,7 @@ export function assertReadOnlyQuery(sql: string): void {
 
 /**
  * Checks whether user-supplied SQL contains transaction control statements
- * (BEGIN, START TRANSACTION, COMMIT, ROLLBACK, END) that could break out of
+ * (BEGIN, START TRANSACTION, COMMIT, END, ROLLBACK, ABORT) that could break out of
  * the read-only transaction wrapping. Strips string literals and comments
  * before checking to avoid false positives.
  *
@@ -150,23 +150,22 @@ export function assertNoTransactionControl(sql: string): void {
   // Remove string literals, dollar-quoted strings, and comments to avoid false positives
   const cleanedSql = normalizedSql
     .replace(/'(?:[^']*|'')*'/g, '')     // Remove string literals (handles escaped quotes)
+    .replace(/"(?:[^"]|"")*"/g, '') // Remove quoted identifiers
     .replace(/\$\$(?:[^$]*(?:\$(?!\$)[^$]*)*)*\$\$/g, '')  // Remove untagged dollar-quoted strings ($$...$$)
     .replace(/\$([a-zA-Z_]\w*)\$[\s\S]*?\$\1\$/g, '') // Remove tagged dollar-quotes with matching tags ($tag$...$tag$)
     .replace(/--.*$/gm, '')              // Remove single-line comments
     .replace(/\/\*[\s\S]*?\*\//g, '')     // Remove multi-line comments
     .trim();
 
-  // Check for transaction control statements that could break read-only wrapping.
-  // 'END' is excluded because it collides with CASE...END syntax.
-  // In PostgreSQL, COMMIT is the standard way to end a transaction;
-  // bare 'END' as transaction control is rare and the risk of CASE...END
-  // false positives outweighs the marginal benefit of catching it.
-  // The database-level SET LOCAL transaction_read_only = on provides the
-  // authoritative guard regardless.
-  const TRANSACTION_CONTROL_PATTERN = /\b(BEGIN|START\s+TRANSACTION|COMMIT|ROLLBACK)\b/i;
+  // Transaction commands are only valid at the beginning of a statement.
+  // Anchoring to the start of the SQL string or a statement delimiter lets us
+  // reject PostgreSQL's END/ABORT aliases without confusing CASE...END with a
+  // transaction boundary.
+  const TRANSACTION_CONTROL_PATTERN =
+    /(?:^|;)\s*(?:BEGIN\b|START\s+TRANSACTION\b|COMMIT\b|END\b|ROLLBACK\b|ABORT\b|PREPARE\s+TRANSACTION\b)/i;
   if (TRANSACTION_CONTROL_PATTERN.test(cleanedSql)) {
     throw new Error(
-      'Transaction control statements (BEGIN/START TRANSACTION/COMMIT/ROLLBACK) ' +
+      'Transaction control statements (BEGIN/START TRANSACTION/COMMIT/END/ROLLBACK/ABORT/PREPARE TRANSACTION) ' +
       'are not allowed in read-only mode. The server will manage transaction boundaries automatically. ' +
       'Use the --write flag to enable write operations.'
     );

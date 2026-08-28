@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { z } from 'zod';
 import { injectableTool } from './util.js';
 import { validateSqlIdentifier, validateSchemaNames, escapeSqlLiteral, escapeSqlIdentifier, wrapInReadOnlyTransaction, validateSqlFilePath, assertReadOnlyQuery } from '../security/sql-sanitizer.js';
-import { validateUrl } from '../security/url-validator.js';
+import { fetchValidatedUrl, validateUrl } from '../security/url-validator.js';
 
 export type AliyunToolsOptions = {
   platform: SupabasePlatform;
@@ -677,7 +677,7 @@ export async function getAliyunTools({
             formData.append('file', fileBlob, entrypoint_path);
 
             // 注意：不要手动设置 Content-Type header，FormData 会自动设置正确的 multipart/form-data boundary
-            const response = await fetch(apiEndpoint, {
+            const response = await fetchValidatedUrl(apiEndpoint, {
               method: 'POST',
               headers: {
                 'apiKey': api_key,
@@ -801,7 +801,7 @@ export async function getAliyunTools({
           const apiEndpoint = `${validatedUrl}/api/edge-api/v1/projects/default/functions`;
 
           // 使用 Node.js fetch API 发送 GET 请求
-          const response = await fetch(apiEndpoint, {
+          const response = await fetchValidatedUrl(apiEndpoint, {
             method: 'GET',
             headers: {
               'apiKey': api_key,
@@ -848,7 +848,7 @@ export async function getAliyunTools({
           const requestBody = data ? JSON.stringify(data) : undefined;
 
           // 使用 Node.js fetch API 发送 POST 请求
-          const response = await fetch(apiEndpoint, {
+          const response = await fetchValidatedUrl(apiEndpoint, {
             method: 'POST',
             headers: {
               'Authorization': `Bearer ${api_key}`,
@@ -902,7 +902,7 @@ export async function getAliyunTools({
           const apiEndpoint = `${validatedUrl}/api/edge-api/v1/projects/default/functions/${encodeURIComponent(function_name)}`;
 
           // 使用 Node.js fetch API 发送 DELETE 请求
-          const response = await fetch(apiEndpoint, {
+          const response = await fetchValidatedUrl(apiEndpoint, {
             method: 'DELETE',
             headers: {
               'apiKey': api_key,

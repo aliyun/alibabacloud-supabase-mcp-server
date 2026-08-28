@@ -1,5 +1,13 @@
-import { describe, expect, test } from 'vitest';
-import { validateUrl, validateAndNormalizeUrl } from './url-validator.js';
+import { afterEach, describe, expect, test, vi } from 'vitest';
+import {
+  fetchValidatedUrl,
+  validateUrl,
+  validateAndNormalizeUrl,
+} from './url-validator.js';
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 // ---------------------------------------------------------------------------
 // validateUrl — basic valid cases
@@ -192,5 +200,45 @@ describe('validateAndNormalizeUrl', () => {
 
   test('throws for invalid URL', () => {
     expect(() => validateAndNormalizeUrl('')).toThrow('non-empty string');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// fetchValidatedUrl
+// ---------------------------------------------------------------------------
+
+describe('fetchValidatedUrl', () => {
+  test('forces manual redirect handling', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    await fetchValidatedUrl('https://test.supabase.co/rest/v1/users', {
+      redirect: 'follow',
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://test.supabase.co/rest/v1/users',
+      expect.objectContaining({ redirect: 'manual' })
+    );
+  });
+
+  test('rejects redirects to unvalidated targets', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(null, {
+        status: 307,
+        headers: { location: 'http://169.254.169.254/latest/meta-data' },
+      })
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(
+      fetchValidatedUrl('https://test.supabase.co/functions/v1/redirect')
+    ).rejects.toThrow('Redirect response (307) is not allowed');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });

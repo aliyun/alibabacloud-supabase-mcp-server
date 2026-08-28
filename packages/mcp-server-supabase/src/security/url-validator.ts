@@ -154,3 +154,33 @@ export function validateAndNormalizeUrl(url: string): string {
   const validated = validateUrl(url);
   return validated;
 }
+
+/**
+ * Fetches a validated Supabase URL without following redirects.
+ *
+ * Redirects are rejected because their targets have not passed the URL
+ * allowlist and could point to cloud metadata or another internal service.
+ *
+ * @param url - The complete URL to request
+ * @param init - Standard fetch request options
+ * @returns The HTTP response when no redirect was returned
+ * @throws Error if the URL is invalid or the response is a redirect
+ */
+export async function fetchValidatedUrl(
+  url: string,
+  init?: RequestInit
+): Promise<Response> {
+  const validatedUrl = validateUrl(url);
+  const response = await fetch(validatedUrl, {
+    ...init,
+    redirect: 'manual',
+  });
+
+  if (response.status >= 300 && response.status < 400) {
+    throw new Error(
+      `Redirect response (${response.status}) is not allowed for validated URLs`
+    );
+  }
+
+  return response;
+}

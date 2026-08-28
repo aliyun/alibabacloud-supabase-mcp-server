@@ -270,6 +270,12 @@ describe('assertNoTransactionControl', () => {
     `)).not.toThrow();
   });
 
+  test('accepts END inside a quoted identifier', () => {
+    expect(() =>
+      assertNoTransactionControl('SELECT "column; END" FROM t')
+    ).not.toThrow();
+  });
+
   test('rejects BEGIN', () => {
     expect(() => assertNoTransactionControl('BEGIN')).toThrow('Transaction control');
   });
@@ -280,6 +286,25 @@ describe('assertNoTransactionControl', () => {
 
   test('rejects ROLLBACK', () => {
     expect(() => assertNoTransactionControl('ROLLBACK')).toThrow('Transaction control');
+  });
+
+  test('rejects END when used as a transaction command', () => {
+    expect(() => assertNoTransactionControl('END')).toThrow('Transaction control');
+    expect(() => assertNoTransactionControl('SELECT 1; END TRANSACTION')).toThrow(
+      'Transaction control'
+    );
+  });
+
+  test('rejects ABORT transaction alias', () => {
+    expect(() => assertNoTransactionControl('SELECT 1; ABORT')).toThrow(
+      'Transaction control'
+    );
+  });
+
+  test('rejects PREPARE TRANSACTION', () => {
+    expect(() =>
+      assertNoTransactionControl("SELECT 1; PREPARE TRANSACTION 'tx'")
+    ).toThrow('Transaction control');
   });
 
   test('rejects START TRANSACTION', () => {
@@ -298,9 +323,10 @@ describe('assertNoTransactionControl', () => {
     expect(() => assertNoTransactionControl("SELECT $$COMMIT$$ AS str")).not.toThrow();
   });
 
-  test('rejects transaction control hidden inside mismatched dollar-quoted tags', () => {
-    // $a$ ... $b$ — different tags, content is NOT stripped
-    expect(() => assertNoTransactionControl("SELECT $a$ COMMIT $b$ FROM t")).toThrow('Transaction control');
+  test('rejects transaction control after mismatched dollar-quoted tags', () => {
+    expect(() =>
+      assertNoTransactionControl("SELECT $a$ text $b$ FROM t; COMMIT")
+    ).toThrow('Transaction control');
   });
 });
 
@@ -333,6 +359,14 @@ describe('wrapInReadOnlyTransaction', () => {
 
   test('throws on SQL containing COMMIT', () => {
     expect(() => wrapInReadOnlyTransaction('SELECT 1; COMMIT')).toThrow('Transaction control');
+  });
+
+  test('rejects END-based read-only transaction bypass', () => {
+    expect(() =>
+      wrapInReadOnlyTransaction(
+        'END; SELECT dangerous_user_function(); END'
+      )
+    ).toThrow('Transaction control');
   });
 
   test('allows CASE...END in wrapped SQL', () => {

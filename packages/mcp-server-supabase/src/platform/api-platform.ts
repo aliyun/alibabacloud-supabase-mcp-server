@@ -14,6 +14,7 @@ import {
   createManagementApiClient,
 } from '../management-api/index.js';
 import { generatePassword } from '../password.js';
+import { fetchValidatedUrl } from '../security/url-validator.js';
 import {
   getClosestAwsRegion,
   getCountryCode,
@@ -1084,7 +1085,7 @@ export function createSupabaseApiPlatform(
       const requestBody = { query: sql };
       
       try {
-        const response = await fetch(requestUrl, {
+        const response = await fetchValidatedUrl(requestUrl, {
           method: 'POST',
           headers: {
             'apikey': api_key,
@@ -1122,7 +1123,7 @@ export function createSupabaseApiPlatform(
       const sql = "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'";
       
       try {
-        const response = await fetch(requestUrl, {
+        const response = await fetchValidatedUrl(requestUrl, {
           method: 'POST',
           headers: {
             'apikey': api_key,
@@ -1199,7 +1200,7 @@ export function createSupabaseApiPlatform(
       }
       
       try {
-        const response = await fetch(requestUrl, {
+        const response = await fetchValidatedUrl(requestUrl, {
           method: 'GET',
           headers: {
             'apikey': api_key,
@@ -1274,7 +1275,7 @@ export function createSupabaseApiPlatform(
       requestUrl = `${requestUrl}/auth/v1/admin/users/${encodeURIComponent(user_id)}`;
       
       try {
-        const response = await fetch(requestUrl, {
+        const response = await fetchValidatedUrl(requestUrl, {
           method: 'GET',
           headers: {
             'apikey': api_key,
@@ -1352,7 +1353,7 @@ export function createSupabaseApiPlatform(
       if (ban_duration !== undefined) requestBody.ban_duration = ban_duration;
       
       try {
-        const response = await fetch(requestUrl, {
+        const response = await fetchValidatedUrl(requestUrl, {
           method: 'POST',
           headers: {
             'apikey': api_key,
@@ -1390,7 +1391,7 @@ export function createSupabaseApiPlatform(
       requestUrl = `${requestUrl}/auth/v1/admin/users/${encodeURIComponent(user_id)}`;
       
       try {
-        const response = await fetch(requestUrl, {
+        const response = await fetchValidatedUrl(requestUrl, {
           method: 'DELETE',
           headers: {
             'apikey': api_key,
@@ -1466,7 +1467,7 @@ export function createSupabaseApiPlatform(
       if (ban_duration !== undefined) requestBody.ban_duration = ban_duration;
       
       try {
-        const response = await fetch(requestUrl, {
+        const response = await fetchValidatedUrl(requestUrl, {
           method: 'PUT',
           headers: {
             'apikey': api_key,
@@ -1504,7 +1505,7 @@ export function createSupabaseApiPlatform(
       requestUrl = `${requestUrl}/storage/v1/bucket`;
       
       try {
-        const response = await fetch(requestUrl, {
+        const response = await fetchValidatedUrl(requestUrl, {
           method: 'GET',
           headers: {
             'apikey': api_key,
@@ -1553,7 +1554,7 @@ export function createSupabaseApiPlatform(
       if (allowed_mime_types !== undefined) requestBody.allowed_mime_types = allowed_mime_types;
       
       try {
-        const response = await fetch(requestUrl, {
+        const response = await fetchValidatedUrl(requestUrl, {
           method: 'POST',
           headers: {
             'apikey': api_key,
@@ -1591,7 +1592,7 @@ export function createSupabaseApiPlatform(
       requestUrl = `${requestUrl}/storage/v1/bucket/${encodeURIComponent(bucket_name)}`;
       
       try {
-        const response = await fetch(requestUrl, {
+        const response = await fetchValidatedUrl(requestUrl, {
           method: 'DELETE',
           headers: {
             'apikey': api_key,
@@ -1652,7 +1653,7 @@ export function createSupabaseApiPlatform(
       }
 
       try {
-        const response = await fetch(requestUrl, {
+        const response = await fetchValidatedUrl(requestUrl, {
           method: 'POST',
           headers: {
             'apikey': api_key,
@@ -1722,7 +1723,7 @@ export function createSupabaseApiPlatform(
       }
       
       try {
-        const response = await fetch(requestUrl, {
+        const response = await fetchValidatedUrl(requestUrl, {
           method: 'POST',
           headers,
           body: body as BodyInit,
@@ -1757,7 +1758,7 @@ export function createSupabaseApiPlatform(
       requestUrl = `${requestUrl}/storage/v1/object/${encodeURIComponent(bucket_name)}/${encodeURIComponent(file_path)}`;
       
       try {
-        const response = await fetch(requestUrl, {
+        const response = await fetchValidatedUrl(requestUrl, {
           method: 'GET',
           headers: {
             'apikey': api_key,
@@ -1804,7 +1805,7 @@ export function createSupabaseApiPlatform(
             const deleteUrl = `${requestUrl}/storage/v1/object/${encodeURIComponent(bucket_name)}/${encodeURIComponent(path)}`;
             
             try {
-              const response = await fetch(deleteUrl, {
+              const response = await fetchValidatedUrl(deleteUrl, {
                 method: 'DELETE',
                 headers: {
                   'apikey': api_key,

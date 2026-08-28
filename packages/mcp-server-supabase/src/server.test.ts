@@ -814,7 +814,7 @@ describe('tools', () => {
   });
 
   test('apply migration, list migrations, check tables', async () => {
-    const { callTool } = await setup();
+    const { callTool } = await setup({ readOnly: false });
 
     const org = await createOrganization({
       name: 'My Org',
@@ -940,6 +940,23 @@ describe('tools', () => {
         project_id: project.id,
         name,
         query,
+      },
+    });
+
+    await expect(resultPromise).rejects.toThrow(
+      'Cannot apply migration in read-only mode.'
+    );
+  });
+
+  test('defaults to read-only mode', async () => {
+    const { callTool } = await setup();
+
+    const resultPromise = callTool({
+      name: 'apply_migration',
+      arguments: {
+        project_id: 'test-project',
+        name: 'should_not_run',
+        query: 'create table should_not_run (id int)',
       },
     });
 
@@ -1074,7 +1091,7 @@ describe('tools', () => {
   });
 
   test('invalid sql for apply_migration', async () => {
-    const { callTool } = await setup();
+    const { callTool } = await setup({ readOnly: false });
 
     const org = await createOrganization({
       name: 'My Org',
@@ -1819,6 +1836,7 @@ describe('tools', () => {
   test('merge branch', async () => {
     const { callTool } = await setup({
       features: ['account', 'branching', 'database'],
+      readOnly: false,
     });
 
     const org = await createOrganization({
@@ -1888,6 +1906,7 @@ describe('tools', () => {
   test('reset branch', async () => {
     const { callTool } = await setup({
       features: ['account', 'branching', 'database'],
+      readOnly: false,
     });
 
     const org = await createOrganization({
@@ -1966,6 +1985,7 @@ describe('tools', () => {
   test('revert migrations', async () => {
     const { callTool } = await setup({
       features: ['account', 'branching', 'database'],
+      readOnly: false,
     });
 
     const org = await createOrganization({
@@ -2068,6 +2088,7 @@ describe('tools', () => {
   test('rebase branch', async () => {
     const { callTool } = await setup({
       features: ['account', 'branching', 'database'],
+      readOnly: false,
     });
 
     const org = await createOrganization({
