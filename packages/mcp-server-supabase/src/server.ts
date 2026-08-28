@@ -113,11 +113,13 @@ export function createSupabaseMcpServer(options: SupabaseMcpServerOptions) {
     contentApiUrl = 'https://supabase.com/docs/api/graphql',
   } = options;
 
-  // const contentApiClientPromise = createContentApiClient(contentApiUrl);
-
   const enabledFeatures = z
     .set(featureGroupSchema)
     .parse(new Set(features ?? DEFAULT_FEATURES));
+
+  const contentApiClientPromise = enabledFeatures.has('docs')
+    ? createContentApiClient(contentApiUrl)
+    : undefined;
 
   const server = createMcpServer({
     name: 'supabase',
@@ -128,11 +130,10 @@ export function createSupabaseMcpServer(options: SupabaseMcpServerOptions) {
       await platform.init?.(info);
     },
     tools: async () => {
-      // const contentApiClient = await contentApiClientPromise;
       const tools: Record<string, Tool> = {};
 
       // Add feature-based tools
-      if (enabledFeatures.has('account')) {
+      if (enabledFeatures.has('account') && !projectId) {
         Object.assign(tools, getAccountTools({ platform }));
       }
       
@@ -170,9 +171,10 @@ export function createSupabaseMcpServer(options: SupabaseMcpServerOptions) {
         Object.assign(tools, getDevelopmentTools({ platform, projectId }));
       }
 
-      // if (enabledFeatures.has('docs')) {
-      //   Object.assign(tools, getDocsTools({ contentApiClient }));
-      // }
+      if (enabledFeatures.has('docs')) {
+        const contentApiClient = await contentApiClientPromise!;
+        Object.assign(tools, getDocsTools({ contentApiClient }));
+      }
 
       if (enabledFeatures.has('functions')) {
         Object.assign(tools, getEdgeFunctionTools({ platform, projectId }));

@@ -29,6 +29,15 @@ export async function setup({ projectId }: SetupOptions = {}) {
   const server = createSupabaseMcpServer({
     platform,
     projectId,
+    features: [
+      'account',
+      'database',
+      'debug',
+      'development',
+      'functions',
+      'branching',
+      'storage',
+    ],
   });
 
   await server.connect(serverTransport);

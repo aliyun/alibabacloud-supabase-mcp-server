@@ -3,15 +3,22 @@ import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { describe, expect, test } from 'vitest';
 import { ACCESS_TOKEN, MCP_CLIENT_NAME, MCP_CLIENT_VERSION } from './mocks.js';
 import { LoggingMessageNotificationSchema } from '@modelcontextprotocol/sdk/types.js';
+import { fileURLToPath } from 'node:url';
 
 type SetupOptions = {
   accessToken?: string;
   projectId?: string;
   readOnly?: boolean;
+  features?: string;
 };
 
 async function setup(options: SetupOptions = {}) {
-  const { accessToken = ACCESS_TOKEN, projectId, readOnly } = options;
+  const {
+    accessToken = ACCESS_TOKEN,
+    projectId,
+    readOnly,
+    features = 'database',
+  } = options;
 
   const client = new Client(
     {
@@ -32,8 +39,11 @@ async function setup(options: SetupOptions = {}) {
     }
   });
 
-  const command = 'npx';
-  const args = ['@supabase/mcp-server-supabase'];
+  const command = process.execPath;
+  const entrypoint = fileURLToPath(
+    new URL('../dist/transports/stdio.js', import.meta.url)
+  );
+  const args = [entrypoint, `--features=${features}`];
 
   if (accessToken) {
     args.push('--access-token', accessToken);
@@ -43,7 +53,9 @@ async function setup(options: SetupOptions = {}) {
     args.push('--project-ref', projectId);
   }
 
-  if (readOnly) {
+  if (readOnly === false) {
+    args.push('--write');
+  } else if (readOnly) {
     args.push('--read-only');
   }
 
@@ -64,6 +76,26 @@ describe('stdio', () => {
     const { tools } = await client.listTools();
 
     expect(tools.length).toBeGreaterThan(0);
+    await client.close();
+  });
+
+  test('Aliyun server exposes every tool and rejects transaction bypasses', async () => {
+    const { client } = await setup({ features: 'aliyun' });
+
+    const { tools } = await client.listTools();
+    expect(tools).toHaveLength(32);
+    expect(tools.map((tool) => tool.name)).toContain('execute_sql');
+
+    const result = await client.callTool({
+      name: 'execute_sql',
+      arguments: {
+        url: 'https://test.supabase.co',
+        api_key: 'test-api-key',
+        sql: 'END; SELECT dangerous_user_function(); END',
+      },
+    });
+    expect(JSON.stringify(result)).toContain('Transaction control statements');
+    await client.close();
   });
 
   test('missing access token fails', async () => {

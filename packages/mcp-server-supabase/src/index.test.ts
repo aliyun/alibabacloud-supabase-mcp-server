@@ -52,7 +52,7 @@ async function setup(options: SetupOptions = {}) {
 
 describe('index', () => {
   test('index.ts exports a working server', async () => {
-    const { client } = await setup();
+    const { client } = await setup({ features: ['database'] });
 
     const { tools } = await client.listTools();
 
